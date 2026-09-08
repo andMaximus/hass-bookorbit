@@ -44,7 +44,7 @@ Full documentation, including network shares, remote access and Kobo setup, is i
 | Database | PostgreSQL 18 + pgvector 0.8.1, bundled and loopback-only |
 | Architectures | `amd64`, `aarch64` |
 | Supervision | s6-overlay v3, ordered start and clean shutdown |
-| Confinement | Scoped AppArmor profile, no elevated capabilities |
+| Confinement | No elevated capabilities, no host namespaces, Supervisor's default AppArmor profile |
 | Backups | Cold, so the database is never copied while running |
 
 Secrets — the JWT signing key, the setup token, the database password and the three encryption keys

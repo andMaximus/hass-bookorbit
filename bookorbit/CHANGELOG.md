@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.9.0.3
+
+Removes the custom AppArmor profile so the add-on starts.
+
+The profile was shipped without ever being tested under enforcement - Docker
+Desktop has no AppArmor, so neither local runs nor CI exercised it, and only the
+Supervisor applies it. It broke startup twice: first by granting execute but not
+read on `/init` (a `#!/bin/sh` script, so the interpreter must read it), then by
+granting `rwlk` but not `ix` on `/run`, where s6-overlay stages and executes its
+runtime from `/run/s6/basedir/bin/init`.
+
+The Supervisor's default add-on profile now applies, which is what most add-ons
+ship with. Nothing else about the add-on's confinement changes: it still
+requests no elevated capabilities, no host namespaces and no privileged access.
+
+A scoped profile is worth having for the +1 security rating and for real
+confinement, but it has to be developed the way it should have been the first
+time: loaded in complain mode on an actual Supervisor, exercised through a first
+run, a library scan, a cover extraction, a kepubify conversion and a device
+sync, and built from the denials that produces.
+
 ## 2.9.0.2
 
 Corrects the version number: 2.9.0-2 is a semver prerelease and sorts below

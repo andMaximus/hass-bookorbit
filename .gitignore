@@ -5,3 +5,4 @@ Thumbs.db
 
 # Local working notes, not part of the add-on.
 /docs/
+.apparmor-profile.wip.txt

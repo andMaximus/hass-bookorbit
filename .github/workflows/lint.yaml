@@ -36,8 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Parse the profile
+      - name: Parse the profile, when one is shipped
         run: |
+          if [ ! -f bookorbit/apparmor.txt ]; then
+            echo "No custom profile shipped; the Supervisor's default applies."
+            exit 0
+          fi
           sudo apt-get update -qq && sudo apt-get install -y -qq apparmor-utils
           sudo apparmor_parser -Q -K bookorbit/apparmor.txt
 
