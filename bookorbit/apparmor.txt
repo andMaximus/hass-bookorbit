@@ -3,9 +3,10 @@
 profile bookorbit flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
-  # BookOrbit needs no elevated capabilities: no CIFS mounting (network shares come
-  # from Home Assistant's own storage feature), no kernel modules, no raw sockets.
-  # These are what s6, the entrypoint's ownership fixes and su-exec/setuidgid need.
+  # --- Capabilities -----------------------------------------------------------
+  # BookOrbit needs nothing elevated. Network shares come from Home Assistant's
+  # storage feature rather than being mounted in here, so there is no sys_admin,
+  # no module loading, no raw sockets, no ptrace.
   capability chown,
   capability dac_override,
   capability dac_read_search,
@@ -23,51 +24,49 @@ profile bookorbit flags=(attach_disconnected,mediate_deleted) {
   network unix dgram,
   network netlink raw,
 
-  # S6 supervision tree
-  /init ix,
-  /bin/** ix,
-  /usr/bin/** ix,
-  /usr/local/bin/** ix,
-  /usr/libexec/** ix,
-  /command/** ix,
-  /package/** ix,
-  /run/{s6,s6-rc*,service}/** rwix,
-  /run/{,**} rwk,
-  /dev/tty rw,
+  # s6 supervises the tree with signals, and PostgreSQL's postmaster signals its
+  # children; constraining these buys nothing and breaks shutdown.
+  signal,
 
-  # Shells and the add-on's own scripts
-  /bin/bash ix,
-  /bin/sh ix,
-  /usr/lib/bashio/** r,
-  /etc/s6-overlay/** rix,
-
-  # Application runtime
-  /app/** r,
-  /app/bin/** ix,
-  /app/entrypoint.sh rix,
-  /opt/bookorbit-python/** rix,
+  # --- Reads ------------------------------------------------------------------
+  # Read is granted broadly and deliberately. Everything readable here is either
+  # the add-on's own image or a volume Home Assistant mapped in on purpose, and
+  # scripts must be readable by their interpreter: /init is `#!/bin/sh`, so `ix`
+  # without `r` fails with "/bin/sh: can't open '/init': Permission denied".
+  # The confinement that matters for a container is below - what it may execute,
+  # write, and which capabilities it holds.
+  /** r,
+  /usr/lib/** rm,
+  /lib/** rm,
   /usr/lib/postgresql*/** rm,
-  /usr/share/postgresql*/** r,
 
-  # Add-on data: the Postgres cluster, app data and generated secrets
+  # --- Execution --------------------------------------------------------------
+  /init rix,
+  /bin/** rix,
+  /sbin/** rix,
+  /usr/bin/** rix,
+  /usr/sbin/** rix,
+  /usr/local/bin/** rix,
+  /usr/libexec/** rix,
+  /command/** rix,
+  /package/** rix,
+  /etc/s6-overlay/** rix,
+  /app/entrypoint.sh rix,
+  /app/bin/** rix,
+  /opt/bookorbit-python/** rix,
+
+  # --- Writes -----------------------------------------------------------------
+  # The add-on's own data (PostgreSQL cluster, covers, book bucket, secrets).
   /data/** rwlk,
 
-  # Libraries. /media and /share cover Home Assistant network storage mounts;
-  # /config is the add-on's own config folder.
+  # Libraries. /media and /share cover Home Assistant network storage mounts.
   /media/** rwlk,
   /share/** rwlk,
   /config/** rwlk,
-  /ssl/** r,
+
   /tmp/** rwlk,
-
-  # The upstream entrypoint sizes the Node heap from the cgroup memory limit.
-  /sys/fs/cgroup/memory.max r,
-  /sys/fs/cgroup/memory/memory.limit_in_bytes r,
-  /sys/fs/cgroup/** r,
-  /proc/** r,
+  /run/** rwlk,
+  /dev/tty rw,
+  /dev/null rw,
   /proc/*/oom_score_adj w,
-
-  /etc/{passwd,group,hosts,resolv.conf,localtime,nsswitch.conf} r,
-  /etc/ssl/** r,
-  /usr/share/zoneinfo/** r,
 }

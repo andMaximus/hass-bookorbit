@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.9.0-2
+
+Fixes the add-on failing to start under Home Assistant with
+`/bin/sh: can't open '/init': Permission denied`.
+
+The AppArmor profile granted `ix` (execute) on `/init` but not `r` (read).
+s6-overlay's `/init` is a `#!/bin/sh` script, so the kernel execs `/bin/sh`
+with it as an argument and the interpreter has to read the file. Plain
+`docker run` does not apply the profile, so this only appeared once the
+Supervisor enforced it.
+
+Read is now granted broadly across the image, which is where the profile was
+wrong rather than merely strict. Execution stays scoped to the real binary
+directories, writes stay scoped to /data, /media, /share, /config, /tmp and
+/run, and the capability set is unchanged - still nothing elevated.
+
 ## 2.9.0
 
 Initial release, packaging [BookOrbit v2.9.0](https://github.com/bookorbit/bookorbit/releases/tag/v2.9.0).
