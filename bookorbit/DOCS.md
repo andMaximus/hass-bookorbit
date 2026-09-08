@@ -271,7 +271,7 @@ Release notes will say when this applies. It will not happen silently.
 
 ## Troubleshooting
 
-**`/bin/sh: can't open '/init': Permission denied`.** Fixed in 2.9.0-2. The add-on's AppArmor
+**`/bin/sh: can't open '/init': Permission denied`.** Fixed in 2.9.0.2. The add-on's AppArmor
 profile granted execute but not read on `/init`, which is a shell script, so the interpreter could
 not read it. Update the add-on. (If you are pinned to an older build, removing `apparmor.txt` and
 rebuilding falls back to the Supervisor's generic profile.)

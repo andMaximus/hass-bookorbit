@@ -1,6 +1,10 @@
 # Changelog
 
-## 2.9.0-2
+## 2.9.0.2
+
+Corrects the version number: 2.9.0-2 is a semver prerelease and sorts below
+2.9.0, so the Supervisor showed no update available. Add-on-only releases now
+append a fourth component instead.
 
 Fixes the add-on failing to start under Home Assistant with
 `/bin/sh: can't open '/init': Permission denied`.
