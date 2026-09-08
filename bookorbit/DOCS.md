@@ -54,6 +54,12 @@ e-mail links all embed this value. Changing it afterwards means re-pairing.
 - Local network only: `http://homeassistant.local:3000` or `http://192.168.1.x:3000`
 - Behind a reverse proxy or Cloudflare Tunnel: the public HTTPS URL, e.g. `https://books.example.com`
 
+> **The "Open Web UI" button ignores this setting.** Home Assistant builds that link from the
+> hostname you are currently viewing Home Assistant on plus the add-on's mapped port — the
+> placeholder syntax supports nothing else, so it cannot be pointed at `app_url`. On a local network
+> it lands in the right place. Behind a reverse proxy or a tunnel it will not, because your proxy
+> hostname does not serve port 3000. Use your `app_url` directly there.
+
 ### Option: `library_browse_root`
 
 Where the in-app library folder picker starts. Default `/media`.
