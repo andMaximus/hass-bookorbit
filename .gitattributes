@@ -1,0 +1,6 @@
+# Everything in this repo ends up inside a Linux container. A CRLF line ending in an
+# s6 run script or the Dockerfile makes the kernel fail to exec it, with an error that
+# blames a missing interpreter rather than the line ending, so pin LF everywhere.
+* text=auto eol=lf
+
+*.png binary

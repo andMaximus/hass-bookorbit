@@ -1,0 +1,66 @@
+---
+name: BookOrbit
+version: "2.9.0"
+slug: bookorbit
+description: >-
+  Self-hosted library and reading platform for ebooks, audiobooks, comics and PDFs,
+  with a bundled PostgreSQL 18 + pgvector database. Kobo Sync, KOReader and OPDS.
+url: https://github.com/andMaximus/hass-bookorbit/tree/main/bookorbit
+image: ghcr.io/andmaximus/{arch}-addon-bookorbit
+arch:
+  - amd64
+  - aarch64
+init: false
+
+ports:
+  3000/tcp: 3000
+ports_description:
+  3000/tcp: >-
+    Web UI and device sync (Kobo, KOReader, OPDS). Devices and reverse proxies both need
+    this. Set it to none only if you reach BookOrbit through another add-on on the internal
+    network at http://bookorbit:3000.
+webui: "http://[HOST]:[PORT:3000]"
+
+# The image carries a HEALTHCHECK, which is what the Supervisor watches now.
+# AppArmor is on by default; bookorbit/apparmor.txt replaces the generic profile.
+backup: cold
+backup_exclude:
+  - "**/logs"
+  - "**/postgres/pg_wal/*"
+  - "**/postgres/postmaster.pid"
+  - "**/postgres/postmaster.opts"
+
+map:
+  - type: media
+    read_only: false
+  - type: share
+    read_only: false
+  - type: addon_config
+    read_only: false
+
+options:
+  app_url: "http://homeassistant.local:3000"
+  library_browse_root: /media
+  log_level: info
+  puid: 0
+  pgid: 0
+  node_max_old_space_size: auto
+  disable_local_auth: false
+  oidc_allow_local_issuers: false
+  use_external_database: false
+
+schema:
+  app_url: url
+  client_url: "url?"
+  book_dock_path: "str?"
+  library_browse_root: str
+  log_level: "list(trace|debug|info|notice|warning|error|fatal)"
+  puid: int(0,)
+  pgid: int(0,)
+  node_max_old_space_size: str
+  disable_local_auth: bool
+  oidc_allow_local_issuers: bool
+  trust_proxy: "str?"
+  timezone: "str?"
+  use_external_database: bool
+  database_url: "str?"

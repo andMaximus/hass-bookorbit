@@ -1,0 +1,43 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# BookOrbit itself.
+#
+# Upstream's own entrypoint is reused verbatim: it builds DATABASE_URL with
+# percent-encoded credentials, prepares and permission-checks /data, sizes the
+# Node heap from the cgroup limit, runs the Drizzle migrations and then execs
+# into node - so s6 supervises the real process and SIGTERM reaches it.
+# ==============================================================================
+set -euo pipefail
+
+if bashio::var.true "${BOOKORBIT_USE_BUNDLED_DB}"; then
+    bashio::log.info "Waiting for PostgreSQL..."
+    for _ in $(seq 1 120); do
+        if pg_isready --quiet --host=127.0.0.1 --port=5432                       --username="${POSTGRES_USER}" --dbname="${POSTGRES_DB}"; then
+            break
+        fi
+        sleep 1
+    done
+
+    if ! pg_isready --quiet --host=127.0.0.1 --port=5432                     --username="${POSTGRES_USER}" --dbname="${POSTGRES_DB}"; then
+        bashio::log.fatal "PostgreSQL did not become ready within 120s."
+        bashio::exit.nok
+    fi
+
+    # init-postgres created the extensions, but a restored or hand-edited data
+    # directory can be missing pgvector, and the failure that causes further in
+    # is far harder to read than this one.
+    if ! PGPASSWORD="${POSTGRES_PASSWORD}" psql --host=127.0.0.1 --username="${POSTGRES_USER}"             --dbname="${POSTGRES_DB}" --tuples-only --no-align --quiet             --command "SELECT 1 FROM pg_extension WHERE extname = 'vector'" | grep -q 1; then
+        bashio::log.fatal "The 'vector' extension is missing from database '${POSTGRES_DB}'."
+        bashio::exit.nok
+    fi
+fi
+
+bashio::log.info "Starting BookOrbit..."
+cd /app || bashio::exit.nok
+
+# Only now, with no further bashio calls ahead of us. See init-config for why this
+# cannot live in the container environment.
+export LOG_LEVEL="${BOOKORBIT_LOG_LEVEL:-info}"
+
+exec /bin/sh /app/entrypoint.sh

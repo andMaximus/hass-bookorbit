@@ -1,0 +1,163 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Prepares the bundled PostgreSQL cluster.
+#
+# CREATE EXTENSION needs a running server, so this oneshot starts a temporary
+# socket-only instance, does the role/database/extension work, and stops it
+# again before svc-postgres brings up the real listener.
+# ==============================================================================
+set -euo pipefail
+
+readonly PGDATA="/data/postgres"
+readonly PGRUN="/run/postgresql"
+readonly MARKER="# --- managed by the BookOrbit add-on, edits below are overwritten ---"
+
+if ! bashio::var.true "${BOOKORBIT_USE_BUNDLED_DB}"; then
+    bashio::log.info "External database configured; skipping bundled PostgreSQL setup."
+    exit 0
+fi
+
+mkdir -p "${PGRUN}"
+chown postgres:postgres "${PGRUN}"
+chmod 0775 "${PGRUN}"
+
+as_postgres() { s6-setuidgid postgres "$@"; }
+
+# sed, not `grep | head`: head closes the pipe early, which under `set -o pipefail`
+# turns the upstream SIGPIPE into a failed pipeline and takes `set -e` with it.
+installed_major="$(postgres --version | sed -nE 's/.*[^0-9]([0-9]+)\.[0-9]+.*/\1/p')"
+if [[ -z "${installed_major}" ]]; then
+    bashio::log.fatal "Could not determine the installed PostgreSQL major version."
+    bashio::exit.nok
+fi
+
+# ------------------------------------------------------------------------------
+# 1. Initialise, or refuse to run against a cluster from a different major.
+# ------------------------------------------------------------------------------
+if [[ ! -f "${PGDATA}/PG_VERSION" ]]; then
+    bashio::log.info "Creating a new PostgreSQL ${installed_major} cluster in ${PGDATA}..."
+    mkdir -p "${PGDATA}"
+    chown postgres:postgres "${PGDATA}"
+    chmod 0700 "${PGDATA}"
+    as_postgres initdb \
+        --pgdata="${PGDATA}" \
+        --username=postgres \
+        --encoding=UTF8 \
+        --locale=C \
+        --data-checksums \
+        > /dev/null
+else
+    existing_major="$(cut -d. -f1 < "${PGDATA}/PG_VERSION")"
+    if [[ "${existing_major}" != "${installed_major}" ]]; then
+        bashio::log.fatal "================================================================"
+        bashio::log.fatal " PostgreSQL major version mismatch - refusing to start."
+        bashio::log.fatal ""
+        bashio::log.fatal "   Data directory: PostgreSQL ${existing_major}"
+        bashio::log.fatal "   This add-on:    PostgreSQL ${installed_major}"
+        bashio::log.fatal ""
+        bashio::log.fatal " PostgreSQL cannot read a data directory from another major"
+        bashio::log.fatal " version. Your data is intact and untouched."
+        bashio::log.fatal ""
+        bashio::log.fatal " Follow the upgrade procedure in the add-on documentation"
+        bashio::log.fatal " (Documentation tab -> 'Upgrading PostgreSQL') before retrying."
+        bashio::log.fatal "================================================================"
+        bashio::exit.nok
+    fi
+    chown -R postgres:postgres "${PGDATA}"
+    chmod 0700 "${PGDATA}"
+fi
+
+# ------------------------------------------------------------------------------
+# 2. Access rules and listener config.
+#
+# Nothing outside this container can reach the database: it listens on loopback
+# only, and the add-on publishes just BookOrbit's own port.
+# ------------------------------------------------------------------------------
+cat > "${PGDATA}/pg_hba.conf" <<'HBA'
+# Managed by the BookOrbit add-on - regenerated on every start.
+local   all   all                  trust
+host    all   all   127.0.0.1/32   scram-sha-256
+host    all   all   ::1/128        scram-sha-256
+HBA
+chown postgres:postgres "${PGDATA}/pg_hba.conf"
+chmod 600 "${PGDATA}/pg_hba.conf"
+
+# Rewrite our managed block each boot so option changes take effect, while leaving
+# initdb's own defaults above it alone.
+if grep -qF "${MARKER}" "${PGDATA}/postgresql.conf"; then
+    sed -i "/${MARKER}/,\$d" "${PGDATA}/postgresql.conf"
+fi
+cat >> "${PGDATA}/postgresql.conf" <<CONF
+${MARKER}
+listen_addresses = '127.0.0.1'
+unix_socket_directories = '${PGRUN}'
+port = 5432
+password_encryption = 'scram-sha-256'
+# A Home Assistant host is usually memory-constrained and shares RAM with the
+# recorder database and everything else; these are deliberately modest.
+shared_buffers = '128MB'
+work_mem = '8MB'
+maintenance_work_mem = '64MB'
+effective_cache_size = '512MB'
+max_connections = 50
+CONF
+chown postgres:postgres "${PGDATA}/postgresql.conf"
+
+# ------------------------------------------------------------------------------
+# 3. Temporary socket-only server for the bootstrap work.
+# ------------------------------------------------------------------------------
+bashio::log.info "Starting PostgreSQL for initialisation..."
+as_postgres pg_ctl --pgdata="${PGDATA}" --silent --wait --timeout=120 \
+    --options="-c listen_addresses='' -c unix_socket_directories='${PGRUN}'" \
+    start
+
+stop_temp_server() {
+    as_postgres pg_ctl --pgdata="${PGDATA}" --silent --wait --timeout=120 --mode=fast stop || true
+}
+trap stop_temp_server EXIT
+
+psql_super() { as_postgres psql --host="${PGRUN}" --username=postgres --no-psqlrc --quiet "$@"; }
+
+# ------------------------------------------------------------------------------
+# 4. Role and database. Both are created if missing; the password is set every
+#    boot so a regenerated secrets file cannot lock the app out of its own data.
+# ------------------------------------------------------------------------------
+role_exists="$(psql_super --tuples-only --no-align --command \
+    "SELECT 1 FROM pg_roles WHERE rolname = '${POSTGRES_USER}'")"
+if [[ "${role_exists}" != "1" ]]; then
+    bashio::log.info "Creating database role '${POSTGRES_USER}'..."
+    psql_super --command "CREATE ROLE \"${POSTGRES_USER}\" LOGIN CREATEDB"
+fi
+psql_super --command \
+    "ALTER ROLE \"${POSTGRES_USER}\" WITH PASSWORD '${POSTGRES_PASSWORD}'" > /dev/null
+
+db_exists="$(psql_super --tuples-only --no-align --command \
+    "SELECT 1 FROM pg_database WHERE datname = '${POSTGRES_DB}'")"
+if [[ "${db_exists}" != "1" ]]; then
+    bashio::log.info "Creating database '${POSTGRES_DB}'..."
+    psql_super --command \
+        "CREATE DATABASE \"${POSTGRES_DB}\" OWNER \"${POSTGRES_USER}\" TEMPLATE template0 ENCODING 'UTF8'"
+fi
+
+# ------------------------------------------------------------------------------
+# 5. Extensions - the same four upstream applies in docker/postgres/init.sql.
+#    Schema migrations are Drizzle's job and run from BookOrbit's own entrypoint.
+# ------------------------------------------------------------------------------
+psql_super --dbname="${POSTGRES_DB}" --set ON_ERROR_STOP=1 <<'SQL' > /dev/null
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+CREATE EXTENSION IF NOT EXISTS "unaccent";
+CREATE EXTENSION IF NOT EXISTS "vector";
+SQL
+
+missing="$(psql_super --dbname="${POSTGRES_DB}" --tuples-only --no-align --command "
+    SELECT string_agg(e, ', ')
+    FROM unnest(ARRAY['uuid-ossp','pg_trgm','unaccent','vector']) AS e
+    WHERE e NOT IN (SELECT extname FROM pg_extension)")"
+if [[ -n "${missing}" ]]; then
+    bashio::log.fatal "PostgreSQL extensions missing after setup: ${missing}"
+    bashio::exit.nok
+fi
+
+bashio::log.info "PostgreSQL ${installed_major} ready (uuid-ossp, pg_trgm, unaccent, vector)."

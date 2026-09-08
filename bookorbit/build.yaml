@@ -1,0 +1,17 @@
+---
+# The add-on config schema requires a tag here, not a digest, so the digest we
+# actually tested is recorded alongside it and verified in CI before the build.
+# A silently re-pushed upstream tag turns the build red instead of shipping.
+# All four values are updated together by .github/workflows/upstream-sync.yaml.
+build_from:
+  amd64: ghcr.io/bookorbit/bookorbit:2.9.0
+  aarch64: ghcr.io/bookorbit/bookorbit:2.9.0
+labels:
+  org.opencontainers.image.source: https://github.com/andMaximus/hass-bookorbit
+  org.opencontainers.image.licenses: AGPL-3.0-only
+args:
+  S6_OVERLAY_VERSION: 3.2.3.2
+  BASHIO_VERSION: 0.19.0
+  UPSTREAM_VERSION: 2.9.0
+  UPSTREAM_DIGEST_AMD64: sha256:da8f03c558d31f52d673a5e2ad622d6b676cc1483455ccd80a86a68815401426
+  UPSTREAM_DIGEST_ARM64: sha256:869f10d067b668499332a4fb6c6fdd3a340816ce39b9e41d5d2e9a66551822c6

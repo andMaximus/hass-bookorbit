@@ -1,0 +1,7 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# BookOrbit is the reason this add-on exists; if it stops, stop the container so
+# Home Assistant reports it as stopped rather than showing a healthy add-on with
+# nothing behind the port.
+bashio::log.warning "BookOrbit exited (code ${1}); bringing the add-on down."
+exec /run/s6/basedir/bin/halt

@@ -1,0 +1,155 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Renders add-on options into the container environment, generates and persists
+# the secrets BookOrbit needs, and prints the first-run setup token.
+# ==============================================================================
+set -euo pipefail
+
+readonly SECRETS_FILE="/data/secrets.env"
+readonly APP_DATA="/data/app"
+readonly ADDON_ENV_DIR="/run/s6/container_environment"
+
+# ------------------------------------------------------------------------------
+# Options are read through a helper rather than bashio::config directly so the
+# image also boots standalone (CI boot test, `docker run`), where the Supervisor
+# has not written /data/options.json.
+# ------------------------------------------------------------------------------
+if ! bashio::fs.file_exists /data/options.json; then
+    bashio::log.warning "No /data/options.json found - running with built-in defaults."
+    echo '{}' > /data/options.json
+fi
+
+cfg() {
+    local key="${1}" default="${2-}" value
+    value="$(jq --raw-output --arg k "${key}" '.[$k] // empty' /data/options.json)"
+    if [[ -z "${value}" || "${value}" == "null" ]]; then
+        printf '%s' "${default}"
+    else
+        printf '%s' "${value}"
+    fi
+}
+
+# Writing into the s6 container environment is how longrun services later see these.
+setenv() {
+    printf '%s' "${2}" > "${ADDON_ENV_DIR}/${1}"
+    export "${1}=${2}"
+}
+
+rand_hex() {
+    # /dev/urandom + od keeps this dependency-free; openssl is not in the base image.
+    head -c "${1}" /dev/urandom | od -A n -v -t x1 | tr -d ' \n'
+}
+
+# ------------------------------------------------------------------------------
+# Secrets: generated once, persisted, never rotated automatically.
+#
+# Rotating JWT_SECRET logs every user out. Rotating any of the three encryption
+# keys makes already-stored SMTP / migration-source / book-request credentials
+# undecryptable, which surfaces much later as confusing failures rather than as
+# an obvious error. So each key is written exactly once and reused forever.
+# ------------------------------------------------------------------------------
+mkdir -p /data
+touch "${SECRETS_FILE}"
+chmod 600 "${SECRETS_FILE}"
+# shellcheck source=/dev/null
+source "${SECRETS_FILE}"
+
+first_run=false
+persist_secret() {
+    local name="${1}" bytes="${2}" current="${!1-}"
+    if [[ -z "${current}" ]]; then
+        current="$(rand_hex "${bytes}")"
+        printf '%s=%s\n' "${name}" "${current}" >> "${SECRETS_FILE}"
+        first_run=true
+    fi
+    setenv "${name}" "${current}"
+}
+
+persist_secret JWT_SECRET 32
+persist_secret SETUP_BOOTSTRAP_TOKEN 16
+persist_secret POSTGRES_PASSWORD 24
+persist_secret EMAIL_ENCRYPTION_KEY 32
+persist_secret MIGRATION_ENCRYPTION_KEY 32
+persist_secret BOOK_REQUEST_ENCRYPTION_KEY 32
+
+# ------------------------------------------------------------------------------
+# Database wiring
+# ------------------------------------------------------------------------------
+if bashio::var.true "$(cfg use_external_database false)"; then
+    database_url="$(cfg database_url '')"
+    if [[ -z "${database_url}" ]]; then
+        bashio::log.fatal "use_external_database is on but database_url is empty."
+        bashio::log.fatal "Set database_url, or turn use_external_database off to use the bundled database."
+        bashio::exit.nok
+    fi
+    setenv DATABASE_URL "${database_url}"
+    setenv BOOKORBIT_USE_BUNDLED_DB "false"
+    bashio::log.info "Using an external PostgreSQL server; the bundled database will not start."
+else
+    setenv BOOKORBIT_USE_BUNDLED_DB "true"
+    setenv POSTGRES_HOST "127.0.0.1"
+    setenv POSTGRES_PORT "5432"
+    setenv POSTGRES_USER "bookorbit"
+    setenv POSTGRES_DB "bookorbit"
+    # DATABASE_URL is intentionally left unset: upstream's entrypoint builds it from the
+    # POSTGRES_* parts and percent-encodes the credentials, which is what we want.
+fi
+
+# ------------------------------------------------------------------------------
+# Application options
+# ------------------------------------------------------------------------------
+app_url="$(cfg app_url 'http://homeassistant.local:3000')"
+setenv APP_URL "${app_url}"
+setenv NODE_ENV "production"
+setenv PORT "3000"
+setenv APP_DATA_PATH "${APP_DATA}"
+# Deliberately NOT exported as LOG_LEVEL: bashio reads that variable as its own log
+# level and compares it with `-gt`, which evaluates the value as an arithmetic
+# variable name - so LOG_LEVEL=info makes every later bashio script die under
+# `set -u`. svc-bookorbit re-exports this as LOG_LEVEL just before exec'ing the app.
+setenv BOOKORBIT_LOG_LEVEL "$(cfg log_level info)"
+setenv PUID "$(cfg puid 0)"
+setenv PGID "$(cfg pgid 0)"
+setenv NODE_MAX_OLD_SPACE_SIZE "$(cfg node_max_old_space_size auto)"
+setenv LIBRARY_BROWSE_ROOT "$(cfg library_browse_root /media)"
+setenv DISABLE_LOCAL_AUTH "$(cfg disable_local_auth false)"
+setenv OIDC_ALLOW_LOCAL_ISSUERS "$(cfg oidc_allow_local_issuers false)"
+# Home Assistant already sets TZ in the add-on container; the option only overrides it.
+setenv TZ "$(cfg timezone "${TZ:-UTC}")"
+
+# Optional values are only exported when set: upstream validates several of these with
+# zod and an empty string is not the same as absent (`CLIENT_URL: z.string().url()`).
+for opt in client_url:CLIENT_URL book_dock_path:BOOK_DOCK_PATH trust_proxy:TRUST_PROXY; do
+    key="${opt%%:*}"
+    env_name="${opt##*:}"
+    value="$(cfg "${key}" '')"
+    # An `x && y` list would return 1 on the empty (default) path and, under
+    # `set -e`, take the whole script down with it.
+    if [[ -n "${value}" ]]; then
+        setenv "${env_name}" "${value}"
+    fi
+done
+
+# ------------------------------------------------------------------------------
+# Application data directory
+# ------------------------------------------------------------------------------
+mkdir -p "${APP_DATA}"
+
+if bashio::var.true "${first_run}"; then
+    bashio::log.info ""
+    bashio::log.info "================================================================"
+    bashio::log.info " BookOrbit first run"
+    bashio::log.info ""
+    bashio::log.info " Complete the setup wizard at:"
+    bashio::log.info "   ${app_url}"
+    bashio::log.info ""
+    bashio::log.info " Setup token (the wizard asks for this):"
+    bashio::log.info "   ${SETUP_BOOTSTRAP_TOKEN}"
+    bashio::log.info ""
+    bashio::log.info " Stored in ${SECRETS_FILE} if you need it again."
+    bashio::log.info "================================================================"
+    bashio::log.info ""
+fi
+
+bashio::log.info "Configuration ready (APP_URL=${app_url}, PUID=$(cfg puid 0):$(cfg pgid 0))."

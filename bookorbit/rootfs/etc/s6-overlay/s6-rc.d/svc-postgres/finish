@@ -1,0 +1,6 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# PostgreSQL going away on its own is fatal for the add-on: BookOrbit cannot run
+# without it, and a restart loop here would just hide the real error.
+bashio::log.warning "PostgreSQL exited (code ${1}); bringing the add-on down."
+exec /run/s6/basedir/bin/halt

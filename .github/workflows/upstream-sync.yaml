@@ -1,0 +1,95 @@
+---
+name: Upstream sync
+
+# Opens a PR when BookOrbit publishes a new release. The PR runs the boot test in
+# builder.yaml before anything is merged, so a release that breaks the add-on shows
+# up as a red PR rather than as a broken image in the store.
+on:
+  schedule:
+    - cron: "17 6,18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve the newest upstream release and its per-arch digests
+        id: upstream
+        run: |
+          set -euo pipefail
+
+          latest="$(gh api repos/bookorbit/bookorbit/releases/latest --jq .tag_name)"
+          version="${latest#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+          current="$(yq -r '.args.UPSTREAM_VERSION' bookorbit/build.yaml)"
+          echo "current=${current}" >> "$GITHUB_OUTPUT"
+          if [ "${version}" = "${current}" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          token="$(curl -fsS 'https://ghcr.io/token?scope=repository:bookorbit/bookorbit:pull&service=ghcr.io' | jq -r .token)"
+          manifest="$(curl -fsS -H "Authorization: Bearer ${token}" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json' \
+            "https://ghcr.io/v2/bookorbit/bookorbit/manifests/${version}")"
+
+          amd64="$(echo "${manifest}" | jq -r '.manifests[] | select(.platform.os=="linux" and .platform.architecture=="amd64") | .digest')"
+          arm64="$(echo "${manifest}" | jq -r '.manifests[] | select(.platform.os=="linux" and .platform.architecture=="arm64") | .digest')"
+
+          if [ -z "${amd64}" ] || [ -z "${arm64}" ]; then
+            echo "::error::could not resolve both architecture digests for ${version}"
+            exit 1
+          fi
+
+          echo "amd64=${amd64}" >> "$GITHUB_OUTPUT"
+          echo "arm64=${arm64}" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply the bump
+        if: steps.upstream.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          version='${{ steps.upstream.outputs.version }}'
+
+          yq -i ".build_from.amd64 = \"ghcr.io/bookorbit/bookorbit:${version}\"" bookorbit/build.yaml
+          yq -i ".build_from.aarch64 = \"ghcr.io/bookorbit/bookorbit:${version}\"" bookorbit/build.yaml
+          yq -i ".args.UPSTREAM_VERSION = \"${version}\"" bookorbit/build.yaml
+          yq -i ".args.UPSTREAM_DIGEST_AMD64 = \"${{ steps.upstream.outputs.amd64 }}\"" bookorbit/build.yaml
+          yq -i ".args.UPSTREAM_DIGEST_ARM64 = \"${{ steps.upstream.outputs.arm64 }}\"" bookorbit/build.yaml
+          yq -i ".version = \"${version}\"" bookorbit/config.yaml
+
+          {
+            printf '# Changelog\n\n## %s\n\n' "${version}"
+            printf 'Updates BookOrbit to [v%s](https://github.com/bookorbit/bookorbit/releases/tag/v%s).\n' \
+              "${version}" "${version}"
+            tail -n +2 bookorbit/CHANGELOG.md
+          } > /tmp/changelog && mv /tmp/changelog bookorbit/CHANGELOG.md
+
+      - name: Open the PR
+        if: steps.upstream.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: upstream/bookorbit-${{ steps.upstream.outputs.version }}
+          title: "Update BookOrbit to ${{ steps.upstream.outputs.version }}"
+          commit-message: "Update BookOrbit to ${{ steps.upstream.outputs.version }}"
+          author: "andMaximus <72256503+andMaximus@users.noreply.github.com>"
+          body: |
+            Updates BookOrbit from `${{ steps.upstream.outputs.current }}` to
+            `${{ steps.upstream.outputs.version }}`, pinning the new per-architecture digests.
+
+            Upstream release notes:
+            https://github.com/bookorbit/bookorbit/releases/tag/v${{ steps.upstream.outputs.version }}
+
+            The boot test on this PR builds the image, starts it, and asserts that PostgreSQL comes
+            up with all four extensions, that the Drizzle migrations run, and that the setup
+            endpoint works. Do not merge on red — a failure here means the new upstream release
+            needs something the add-on does not yet provide.

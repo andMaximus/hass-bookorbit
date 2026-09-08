@@ -1,0 +1,15 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# PostgreSQL 18 - the bundled database.
+# ==============================================================================
+set -euo pipefail
+
+if ! bashio::var.true "${BOOKORBIT_USE_BUNDLED_DB}"; then
+    bashio::log.info "External database configured; bundled PostgreSQL stays down."
+    # A longrun that exits is restarted forever, so park instead of exiting.
+    exec sleep infinity
+fi
+
+bashio::log.info "Starting PostgreSQL..."
+exec s6-setuidgid postgres postgres -D /data/postgres

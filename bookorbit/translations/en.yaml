@@ -1,0 +1,73 @@
+---
+configuration:
+  app_url:
+    name: External URL
+    description: >-
+      The URL you and your devices use to reach BookOrbit. Kobo, KOReader, OPDS and
+      e-mail links are all built from this, so changing it after pairing means
+      re-pairing those devices. Use the public HTTPS hostname if you front BookOrbit
+      with a reverse proxy or a Cloudflare Tunnel.
+  client_url:
+    name: Client URL (CORS)
+    description: >-
+      Only needed when the web interface is served from a different origin than the
+      external URL. Leave empty otherwise.
+  book_dock_path:
+    name: Book Dock folder
+    description: >-
+      Optional drop folder for hands-free importing, for example /share/bookdock.
+      Keep this on Home Assistant's local storage: instant pickup relies on inotify,
+      which does not fire for files written on the far side of a network share.
+  library_browse_root:
+    name: Folder picker root
+    description: >-
+      Where the in-app library folder picker starts. Use /media for network storage
+      added with the "media" usage, /share for the "share" usage, or / to see both.
+  log_level:
+    name: Log level
+    description: How much detail BookOrbit writes to the add-on log.
+  puid:
+    name: User ID (PUID)
+    description: >-
+      UID BookOrbit runs as. Leave at 0 for Home Assistant's own /media and /share.
+      On an NFS share exported with root_squash, set this to the UID that owns the
+      files or every write will fail while reads keep working.
+  pgid:
+    name: Group ID (PGID)
+    description: GID BookOrbit runs as. See User ID.
+  node_max_old_space_size:
+    name: Node heap limit (MB)
+    description: >-
+      JavaScript heap limit. "auto" sizes it from the container memory limit. Raise it
+      for very large libraries.
+  disable_local_auth:
+    name: Disable password sign-in
+    description: >-
+      Rejects username/password sign-in once at least one administrator has linked an
+      enabled OIDC provider. Set it back to false and restart to recover access if your
+      identity provider is unavailable.
+  oidc_allow_local_issuers:
+    name: Allow local OIDC issuers
+    description: >-
+      Permit OIDC discovery against private or LAN addresses. Required for a
+      self-hosted Authentik, Keycloak or Authelia on your own network.
+  trust_proxy:
+    name: Trusted proxies
+    description: >-
+      Override which proxies may set X-Forwarded-*. Empty keeps upstream's default,
+      which already covers Home Assistant's own add-on network.
+  timezone:
+    name: Timezone
+    description: Overrides the timezone inherited from Home Assistant. Empty follows Home Assistant.
+  use_external_database:
+    name: Use an external PostgreSQL server
+    description: >-
+      Skip the bundled database entirely. The external server needs PostgreSQL 16+ with
+      the uuid-ossp, pg_trgm, unaccent and vector (pgvector) extensions available.
+  database_url:
+    name: External database URL
+    description: >-
+      For example postgres://user:password@host:5432/bookorbit. Only used when
+      "Use an external PostgreSQL server" is on.
+network:
+  3000/tcp: Web UI and device sync (Kobo, KOReader, OPDS)

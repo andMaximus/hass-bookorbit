@@ -1,0 +1,52 @@
+---
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  addon-config:
+    name: Add-on config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate config against the Supervisor schema
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: "./bookorbit"
+
+  shellcheck:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run shellcheck over the s6 service tree
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          # The scripts run under bashio (bash), which the shebang does not tell shellcheck.
+          find bookorbit/rootfs -type f \( -name run -o -name finish \) -print0 \
+            | xargs -0 shellcheck --shell=bash --external-sources \
+                --exclude=SC1091,SC2154
+
+  apparmor:
+    name: AppArmor profile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Parse the profile
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq apparmor-utils
+          sudo apparmor_parser -Q -K bookorbit/apparmor.txt
+
+  hadolint:
+    name: Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: bookorbit/Dockerfile
+          ignore: DL3006,DL3018

@@ -1,0 +1,237 @@
+---
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bookorbit/**"
+      - ".github/workflows/builder.yaml"
+  pull_request:
+    paths:
+      - "bookorbit/**"
+      - ".github/workflows/builder.yaml"
+  workflow_dispatch:
+
+env:
+  ADDON: bookorbit
+
+jobs:
+  # A broken s6 graph or a database that never comes up would otherwise ship silently,
+  # so nothing is published until an amd64 image has actually booted and served traffic.
+  boot-test:
+    name: Boot test (amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read build arguments
+        id: pins
+        run: |
+          echo "from=$(yq -r '.build_from.amd64' "${ADDON}/build.yaml")" >> "$GITHUB_OUTPUT"
+          echo "s6=$(yq -r '.args.S6_OVERLAY_VERSION' "${ADDON}/build.yaml")" >> "$GITHUB_OUTPUT"
+          echo "bashio=$(yq -r '.args.BASHIO_VERSION' "${ADDON}/build.yaml")" >> "$GITHUB_OUTPUT"
+          echo "upstream=$(yq -r '.args.UPSTREAM_VERSION' "${ADDON}/build.yaml")" >> "$GITHUB_OUTPUT"
+
+      # The add-on config schema only accepts a tag in build_from, and tags are mutable.
+      # Verifying the recorded digests turns a silently re-pushed upstream tag into a red
+      # build rather than an image nobody tested.
+      - name: Verify the upstream tag still points at the tested digests
+        run: |
+          set -euo pipefail
+          version="$(yq -r '.args.UPSTREAM_VERSION' "${ADDON}/build.yaml")"
+          token="$(curl -fsS 'https://ghcr.io/token?scope=repository:bookorbit/bookorbit:pull&service=ghcr.io' | jq -r .token)"
+          manifest="$(curl -fsS -H "Authorization: Bearer ${token}" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json' \
+            "https://ghcr.io/v2/bookorbit/bookorbit/manifests/${version}")"
+
+          for pair in "amd64:UPSTREAM_DIGEST_AMD64" "arm64:UPSTREAM_DIGEST_ARM64"; do
+            plat="${pair%%:*}"; key="${pair##*:}"
+            actual="$(echo "${manifest}" | jq -r --arg p "${plat}" \
+              '.manifests[] | select(.platform.os=="linux" and .platform.architecture==$p) | .digest')"
+            expected="$(yq -r ".args.${key}" "${ADDON}/build.yaml")"
+            if [ "${actual}" != "${expected}" ]; then
+              echo "::error::${plat}: upstream tag ${version} now resolves to ${actual}, but build.yaml records ${expected}"
+              exit 1
+            fi
+            echo "${plat}: ${actual} OK"
+          done
+
+      - name: Build
+        run: |
+          docker build \
+            --build-arg BUILD_FROM='${{ steps.pins.outputs.from }}' \
+            --build-arg BUILD_ARCH=amd64 \
+            --build-arg S6_OVERLAY_VERSION='${{ steps.pins.outputs.s6 }}' \
+            --build-arg BASHIO_VERSION='${{ steps.pins.outputs.bashio }}' \
+            --build-arg UPSTREAM_VERSION='${{ steps.pins.outputs.upstream }}' \
+            -t addon-test:ci "${ADDON}"
+
+      - name: Start
+        run: |
+          docker volume create bo-ci-data
+          docker run --rm -v bo-ci-data:/data --entrypoint sh addon-test:ci -c \
+            'printf "%s" "{\"app_url\":\"http://localhost:3000\",\"library_browse_root\":\"/media\",\"log_level\":\"info\",\"puid\":0,\"pgid\":0,\"node_max_old_space_size\":\"auto\",\"disable_local_auth\":false,\"oidc_allow_local_issuers\":false,\"use_external_database\":false}" > /data/options.json'
+          mkdir -p "${RUNNER_TEMP}/media"
+          docker run -d --name addon-ci -p 3000:3000 \
+            -v bo-ci-data:/data -v "${RUNNER_TEMP}/media:/media" addon-test:ci
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:3000/api/v1/health > /dev/null 2>&1; then
+              echo "healthy after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::BookOrbit did not become healthy within 180s"
+          exit 1
+
+      - name: Assert database, extensions and migrations
+        run: |
+          set -euo pipefail
+
+          docker exec addon-ci pg_isready -h 127.0.0.1 -U bookorbit -d bookorbit
+
+          extensions="$(docker exec addon-ci sh -c \
+            'PGPASSWORD=$(grep POSTGRES_PASSWORD /data/secrets.env | cut -d= -f2) \
+             psql -h 127.0.0.1 -U bookorbit -d bookorbit -tAc \
+             "select extname from pg_extension order by 1"')"
+          echo "extensions: ${extensions}"
+          for want in uuid-ossp pg_trgm unaccent vector; do
+            echo "${extensions}" | grep -qx "${want}" || {
+              echo "::error::missing PostgreSQL extension: ${want}"; exit 1; }
+          done
+
+          # Drizzle runs from upstream's entrypoint; an empty schema means it never did.
+          tables="$(docker exec addon-ci sh -c \
+            'PGPASSWORD=$(grep POSTGRES_PASSWORD /data/secrets.env | cut -d= -f2) \
+             psql -h 127.0.0.1 -U bookorbit -d bookorbit -tAc \
+             "select count(*) from information_schema.tables where table_schema = current_schema()"')"
+          echo "tables: ${tables}"
+          [ "${tables}" -gt 50 ] || { echo "::error::migrations did not run"; exit 1; }
+
+          # All six secrets generated and persisted. The redirect has to happen inside
+          # the container, so it goes through sh -c rather than the runner's shell.
+          secrets="$(docker exec addon-ci sh -c 'wc -l < /data/secrets.env')"
+          [ "${secrets}" -eq 6 ] || { echo "::error::expected 6 secrets, found ${secrets}"; exit 1; }
+
+      - name: Assert the setup wizard accepts the generated token
+        run: |
+          set -euo pipefail
+          token="$(docker exec addon-ci sh -c 'grep SETUP_BOOTSTRAP_TOKEN /data/secrets.env | cut -d= -f2')"
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://localhost:3000/api/v1/auth/setup \
+            -H 'Content-Type: application/json' -H "x-setup-token: ${token}" \
+            -d '{"email":"ci@example.com","name":"CI","username":"citest","password":"CorrectHorse9!x"}')"
+          [ "${code}" = "201" ] || { echo "::error::setup returned HTTP ${code}"; exit 1; }
+
+      - name: Assert clean restart reuses secrets and the cluster
+        run: |
+          set -euo pipefail
+          before="$(docker exec addon-ci sh -c 'grep JWT_SECRET /data/secrets.env | cut -d= -f2')"
+          docker restart addon-ci > /dev/null
+          for i in $(seq 1 90); do
+            curl -fsS http://localhost:3000/api/v1/health > /dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://localhost:3000/api/v1/health > /dev/null
+
+          after="$(docker exec addon-ci sh -c 'grep JWT_SECRET /data/secrets.env | cut -d= -f2')"
+          [ "${before}" = "${after}" ] || { echo "::error::JWT_SECRET was regenerated"; exit 1; }
+
+          # A torn shutdown would show up here as recovery on the next start.
+          if docker logs addon-ci 2>&1 | grep -q "was not properly shut down"; then
+            echo "::error::PostgreSQL did not shut down cleanly"
+            exit 1
+          fi
+
+          # Setup already completed before the restart, so the state persisted.
+          curl -fsS http://localhost:3000/api/v1/auth/setup-status | grep -q '"needsSetup":false'
+
+      - name: Container logs
+        if: always()
+        run: docker logs addon-ci 2>&1 | tail -100
+
+  # home-assistant/builder@master is deprecated and will be removed, which would break
+  # this workflow. Its replacements are generic image builders: they do not read
+  # build.yaml, so the build arguments are read from it here instead. build.yaml stays
+  # the single source of truth, because a Supervisor installing this add-on from source
+  # still reads it directly.
+  prepare:
+    name: Prepare matrix
+    needs: boot-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read add-on metadata
+        id: meta
+        run: |
+          {
+            echo "version=$(yq -r '.version' bookorbit/config.yaml)"
+            echo "architectures=$(yq -o=json -I=0 '.arch' bookorbit/config.yaml)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build the architecture matrix
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@4de35182ce1e329181bffcbcc84d33db5e2c7e10 # 2026.06.0
+        with:
+          architectures: ${{ steps.meta.outputs.architectures }}
+          image-name: addon-bookorbit
+          registry-prefix: ghcr.io/andmaximus
+
+  publish:
+    name: Publish ${{ matrix.arch }}
+    needs: [boot-test, prepare]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write        # keyless cosign signing
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read build arguments for ${{ matrix.arch }}
+        id: args
+        run: |
+          set -euo pipefail
+          {
+            echo "build_from=$(yq -r ".build_from.${{ matrix.arch }}" bookorbit/build.yaml)"
+            echo "s6=$(yq -r '.args.S6_OVERLAY_VERSION' bookorbit/build.yaml)"
+            echo "bashio=$(yq -r '.args.BASHIO_VERSION' bookorbit/build.yaml)"
+            echo "upstream=$(yq -r '.args.UPSTREAM_VERSION' bookorbit/build.yaml)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: home-assistant/builder/actions/build-image@4de35182ce1e329181bffcbcc84d33db5e2c7e10 # 2026.06.0
+        with:
+          arch: ${{ matrix.arch }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.prepare.outputs.version }}
+            latest
+          version: ${{ needs.prepare.outputs.version }}
+          context: ./bookorbit
+          push: true
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          build-args: |
+            BUILD_FROM=${{ steps.args.outputs.build_from }}
+            BUILD_ARCH=${{ matrix.arch }}
+            S6_OVERLAY_VERSION=${{ steps.args.outputs.s6 }}
+            BASHIO_VERSION=${{ steps.args.outputs.bashio }}
+            UPSTREAM_VERSION=${{ steps.args.outputs.upstream }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/andMaximus/hass-bookorbit
+            org.opencontainers.image.licenses=AGPL-3.0-only
+
+  # No multi-arch manifest step: config.yaml refers to images by the {arch} placeholder,
+  # so the Supervisor pulls the per-architecture image directly.
