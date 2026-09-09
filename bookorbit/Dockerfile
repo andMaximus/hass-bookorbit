@@ -20,8 +20,10 @@ WORKDIR /src
 # hadolint ignore=DL3018
 RUN apk add --no-cache curl git tar
 
-RUN curl -fsSL "https://codeload.github.com/bookorbit/bookorbit/tar.gz/refs/tags/v${UPSTREAM_VERSION}" \
-    | tar xz --strip-components=1
+RUN curl -fsSL -o /tmp/upstream.tar.gz \
+        "https://codeload.github.com/bookorbit/bookorbit/tar.gz/refs/tags/v${UPSTREAM_VERSION}" \
+    && tar xzf /tmp/upstream.tar.gz --strip-components=1 \
+    && rm -f /tmp/upstream.tar.gz
 
 COPY patches/*.patch /patches/
 # --verbose so a rejected hunk names the file. This failing is the intended
