@@ -1,4 +1,47 @@
 ARG BUILD_FROM
+
+# ==============================================================================
+# The web client, rebuilt to work under a path prefix.
+#
+# Home Assistant Ingress serves the add-on under /api/hassio_ingress/<token>/ on
+# the Home Assistant origin. Upstream's client is built with an absolute base, so
+# there the browser asks that origin's root for /assets/... - Home Assistant
+# answers, and the add-on is never contacted. Patching the client is the only fix;
+# see patches/README.md.
+#
+# This output is plain JavaScript and identical on every architecture. It is used
+# ONLY for the Ingress panel: the mapped port keeps serving upstream's own
+# untouched build, so devices and reverse proxies are unaffected by any of this.
+# ==============================================================================
+FROM node:26.8.1-alpine3.23 AS client-ingress
+ARG UPSTREAM_VERSION
+WORKDIR /src
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache curl git tar
+
+RUN curl -fsSL -o /tmp/upstream.tar.gz \
+        "https://codeload.github.com/bookorbit/bookorbit/tar.gz/refs/tags/v${UPSTREAM_VERSION}" \
+    && tar xzf /tmp/upstream.tar.gz --strip-components=1 \
+    && rm -f /tmp/upstream.tar.gz
+
+COPY patches/*.patch /patches/
+# --verbose so a rejected hunk names the file. This failing is the intended
+# behaviour when upstream moves the code: a red build beats a silently broken UI.
+RUN git apply --verbose /patches/*.patch
+
+RUN npm install -g pnpm@11.22.0 \
+    && pnpm install --filter client... --frozen-lockfile
+
+ENV BOOKORBIT_PREFIXED_BUILD=1
+
+# The second check is the one that matters: a relative base is the entire point of
+# this stage, so if index.html still references the origin root, fail here rather
+# than ship a panel that loads nothing.
+RUN pnpm --config.verify-deps-before-run=false --filter client run build-only \
+    && test -f /src/client/dist/index.html \
+    && ! grep -q 'src="/assets/' /src/client/dist/index.html
+
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
@@ -22,7 +65,7 @@ ENV \
 # hadolint ignore=DL3018
 RUN set -eux; \
     apk add --no-cache \
-        bash jq curl xz tzdata \
+        bash jq curl xz tzdata nginx \
         postgresql18 postgresql18-client postgresql18-contrib postgresql-pgvector; \
     \
     # s6-overlay releases are named by uname -m, not by the HA arch slug.
@@ -60,6 +103,10 @@ RUN set -eux; \
     test -f /usr/lib/postgresql18/vector.so || \
         test -f "$(pg_config --pkglibdir)/vector.so"; \
     postgres --version
+
+# The Ingress panel is served from its own root by nginx, so upstream's build in
+# /app/public stays exactly where Fastify expects it for the mapped port.
+COPY --from=client-ingress /src/client/dist /app/public-ingress
 
 COPY rootfs /
 

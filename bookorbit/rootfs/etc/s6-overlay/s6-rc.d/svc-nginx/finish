@@ -1,0 +1,5 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# nginx dying takes the Ingress panel with it, but the add-on is still perfectly
+# usable on its mapped port, so this is a warning rather than a reason to halt.
+bashio::log.warning "The Ingress panel exited (code ${1}); the mapped port is unaffected."

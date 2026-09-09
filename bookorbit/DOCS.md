@@ -54,11 +54,9 @@ e-mail links all embed this value. Changing it afterwards means re-pairing.
 - Local network only: `http://homeassistant.local:3000` or `http://192.168.1.x:3000`
 - Behind a reverse proxy or Cloudflare Tunnel: the public HTTPS URL, e.g. `https://books.example.com`
 
-> **The "Open Web UI" button ignores this setting.** Home Assistant builds that link from the
-> hostname you are currently viewing Home Assistant on plus the add-on's mapped port — the
-> placeholder syntax supports nothing else, so it cannot be pointed at `app_url`. On a local network
-> it lands in the right place. Behind a reverse proxy or a tunnel it will not, because your proxy
-> hostname does not serve port 3000. Use your `app_url` directly there.
+> Home Assistant opens BookOrbit through the sidebar panel, so there is no "Open Web UI" button to
+> point anywhere. This setting is what your **devices** use, and what you should bookmark for access
+> from outside Home Assistant.
 
 ### Option: `library_browse_root`
 
@@ -235,15 +233,24 @@ Plain HTTP works. Over Tailscale or another VPN that is a perfectly reasonable s
 
 ## Home Assistant Ingress
 
-This add-on does **not** use Ingress (the sidebar panel), and access is through its port instead.
+BookOrbit appears in your Home Assistant sidebar. Nothing to configure.
 
-BookOrbit's web client is built with absolute asset paths, so under an Ingress path prefix the
-browser requests its JavaScript from Home Assistant's own URL space and never reaches the add-on.
-Fixing that requires changes to BookOrbit's client build, not a proxy trick — it is planned for a
-future release of this add-on.
+The panel and the mapped port are deliberately separate paths:
 
-Note that Ingress could never be the only way in regardless: Kobo, KOReader and OPDS devices have no
-Ingress session and always need the add-on's real URL.
+- **The panel** is served by an nginx inside the add-on from a copy of the web client that has been
+  rebuilt to work under Ingress's session path. Home Assistant serves add-ons under
+  `/api/hassio_ingress/<token>/`, and upstream's client is built assuming it lives at the root, so
+  it would otherwise ask Home Assistant's own URL space for its JavaScript and never reach the
+  add-on.
+- **The mapped port** keeps serving upstream's own untouched build, straight from BookOrbit. Nothing
+  about the panel is in that path.
+
+**Devices still need the port.** A Kobo, the KOReader plugin, OPDS clients and Send-to-Kindle hold
+no Ingress session and cannot obtain one, so they use `app_url` as they always have. The panel is a
+convenience for browsing from Home Assistant, not a replacement.
+
+If the panel ever misbehaves after an upstream BookOrbit release, the mapped port is unaffected and
+remains fully usable.
 
 ## Backups
 

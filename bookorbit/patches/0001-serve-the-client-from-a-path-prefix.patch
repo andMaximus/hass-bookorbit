@@ -1,0 +1,330 @@
+diff --git a/client/src/features/book-dock/composables/useBookDockDetail.ts b/client/src/features/book-dock/composables/useBookDockDetail.ts
+index b16ddf3..e4bdb5b 100644
+--- a/client/src/features/book-dock/composables/useBookDockDetail.ts
++++ b/client/src/features/book-dock/composables/useBookDockDetail.ts
+@@ -1,6 +1,7 @@
+ import { ref } from 'vue'
+ import { api } from '@/lib/api'
+ import type { BookDockFile, BookDockMetadata } from '@bookorbit/types'
++import { withBase } from '@/lib/ingress-base'
+ 
+ export function useBookDockDetail() {
+   const file = ref<BookDockFile | null>(null)
+@@ -69,7 +70,7 @@ export function useBookDockDetail() {
+   }
+ 
+   function coverUrl(id: number): string {
+-    return `/api/v1/book-dock/files/${id}/cover`
++    return withBase(`/api/v1/book-dock/files/${id}/cover`)
+   }
+ 
+   return { file, loading, saving, saved, saveError, loadFile, saveMetadata, debouncedSave, setTarget, coverUrl }
+diff --git a/client/src/features/book-dock/lib/file-display.ts b/client/src/features/book-dock/lib/file-display.ts
+index 3feeb57..aae80f3 100644
+--- a/client/src/features/book-dock/lib/file-display.ts
++++ b/client/src/features/book-dock/lib/file-display.ts
+@@ -1,5 +1,6 @@
+ import type { BookDockFile, BookDockMetadata } from '@bookorbit/types'
+ import { toDisplayCoverUrl } from '@/features/book/lib/metadata-fetch'
++import { withBase } from '@/lib/ingress-base'
+ 
+ export type MetadataState = 'edited' | 'fetched' | 'embedded' | 'none'
+ 
+@@ -43,7 +44,7 @@ export function proposedAuthor(file: BookDockFile): string | null {
+ }
+ 
+ export function currentCoverUrl(file: BookDockFile): string {
+-  return `/api/v1/book-dock/files/${file.id}/cover?v=${new Date(file.updatedAt).getTime()}`
++  return withBase(`/api/v1/book-dock/files/${file.id}/cover?v=${new Date(file.updatedAt).getTime()}`)
+ }
+ 
+ export function proposedCoverUrl(file: BookDockFile): string | null {
+diff --git a/client/src/features/book/composables/useCoverVersions.ts b/client/src/features/book/composables/useCoverVersions.ts
+index 9f9903e..c744fb8 100644
+--- a/client/src/features/book/composables/useCoverVersions.ts
++++ b/client/src/features/book/composables/useCoverVersions.ts
+@@ -1,4 +1,5 @@
+ import { ref } from 'vue'
++import { withBase } from '@/lib/ingress-base'
+ 
+ const STORAGE_KEY = 'cover-versions'
+ type CoverVersionInput = number | string | Date | null | undefined
+@@ -58,7 +59,7 @@ export function useCoverVersions() {
+   }
+ 
+   function coverUrl(bookId: number, type: 'thumbnail' | 'cover' = 'thumbnail', sourceVersion?: CoverVersionInput): string {
+-    const base = `/api/v1/books/${bookId}/${type}`
++    const base = withBase(`/api/v1/books/${bookId}/${type}`)
+     const localVersion = versions.value.get(bookId)
+     const serverVersion = normalizeVersion(sourceVersion)
+     const token = versionToken(localVersion, serverVersion)
+diff --git a/client/src/features/book/lib/metadata-fetch.ts b/client/src/features/book/lib/metadata-fetch.ts
+index c668059..1bb302b 100644
+--- a/client/src/features/book/lib/metadata-fetch.ts
++++ b/client/src/features/book/lib/metadata-fetch.ts
+@@ -1,4 +1,5 @@
+ import type { MetadataCandidate, MetadataProviderInfo, MetadataProviderKey } from '@bookorbit/types'
++import { withBase } from '@/lib/ingress-base'
+ 
+ export { getProviderColor, providerBadgeStyle, providerActivePillStyle } from '@/lib/provider-colors'
+ 
+@@ -28,7 +29,7 @@ export function toDisplayCoverUrl(url: string | null | undefined): string {
+   try {
+     const parsed = origin ? new URL(raw, origin) : new URL(raw)
+     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return raw
+-    if (parsed.pathname === COVER_PROXY_PATH) return raw
++    if (parsed.pathname === COVER_PROXY_PATH || parsed.pathname === withBase(COVER_PROXY_PATH)) return raw
+ 
+     if (origin) {
+       const pageOrigin = new URL(origin).origin
+@@ -37,7 +38,7 @@ export function toDisplayCoverUrl(url: string | null | undefined): string {
+       return raw
+     }
+ 
+-    return `${COVER_PROXY_PATH}?url=${encodeURIComponent(parsed.toString())}`
++    return `${withBase(COVER_PROXY_PATH)}?url=${encodeURIComponent(parsed.toString())}`
+   } catch {
+     return raw
+   }
+diff --git a/client/src/features/reader/audiobook/AudiobookReaderView.vue b/client/src/features/reader/audiobook/AudiobookReaderView.vue
+index 8c2077f..5dc26ab 100644
+--- a/client/src/features/reader/audiobook/AudiobookReaderView.vue
++++ b/client/src/features/reader/audiobook/AudiobookReaderView.vue
+@@ -36,6 +36,7 @@ import { useAudioSettings } from './composables/useAudioSettings'
+ import { useAudioBookmarks, type AudioBookmark } from './composables/useAudioBookmarks'
+ import { useReadingSession } from '../shared/composables/useReadingSession'
+ import { useFullscreen } from '../shared/composables/useFullscreen'
++import { withBase } from '@/lib/ingress-base'
+ 
+ const { t } = useI18n()
+ 
+@@ -724,7 +725,7 @@ onMounted(async () => {
+       navigator.mediaSession.metadata = new MediaMetadata({
+         title: displayTitle.value,
+         artist: detailRes.authors.map((a: { name: string }) => a.name).join(', '),
+-        artwork: detailRes.coverSource ? [{ src: `/api/v1/books/${props.bookId}/cover`, sizes: '512x512', type: 'image/jpeg' }] : [],
++        artwork: detailRes.coverSource ? [{ src: withBase(`/api/v1/books/${props.bookId}/cover`), sizes: '512x512', type: 'image/jpeg' }] : [],
+       })
+       navigator.mediaSession.setActionHandler('play', togglePlay)
+       navigator.mediaSession.setActionHandler('pause', togglePlay)
+@@ -853,7 +854,7 @@ onMounted(async () => {
+             />
+             <!-- Cover -->
+             <div class="absolute inset-0 rounded-2xl overflow-hidden ring-1 ring-white/10 shadow-2xl">
+-              <img v-if="detail.coverSource" :src="`/api/v1/books/${props.bookId}/cover`" class="w-full h-full object-cover" :alt="displayTitle" />
++              <img v-if="detail.coverSource" :src="withBase(`/api/v1/books/${props.bookId}/cover`)" class="w-full h-full object-cover" :alt="displayTitle" />
+               <BookCoverPlaceholder
+                 v-else
+                 :title="detail.title"
+diff --git a/client/src/features/reader/cbz/composables/useCbz.ts b/client/src/features/reader/cbz/composables/useCbz.ts
+index 24fef7a..ad9a210 100644
+--- a/client/src/features/reader/cbz/composables/useCbz.ts
++++ b/client/src/features/reader/cbz/composables/useCbz.ts
+@@ -1,6 +1,7 @@
+ import { ref } from 'vue'
+ import type { BookDetail } from '@bookorbit/types'
+ import { api } from '@/lib/api'
++import { withBase } from '@/lib/ingress-base'
+ 
+ /** The series a book is read as part of: its first membership, matching how the book pages order them. */
+ function primarySeriesId(book: BookDetail | null): number | null {
+@@ -17,7 +18,7 @@ export function useCbz(fileId: number, bookId: number) {
+   const error = ref<string | null>(null)
+ 
+   function pageUrl(n: number): string {
+-    return `/api/v1/cbz/files/${fileId}/pages/${n}`
++    return withBase(`/api/v1/cbz/files/${fileId}/pages/${n}`)
+   }
+ 
+   async function load(): Promise<void> {
+diff --git a/client/src/lib/download.ts b/client/src/lib/download.ts
+index d697774..e6434e3 100644
+--- a/client/src/lib/download.ts
++++ b/client/src/lib/download.ts
+@@ -1,4 +1,5 @@
+ import { api } from '@/lib/api'
++import { withBase } from '@/lib/ingress-base'
+ 
+ /**
+  * An iOS home-screen web app runs without any browser chrome, so sending it to a
+@@ -87,7 +88,9 @@ async function readBlobWithProgress(response: Response, onProgress: (progress: D
+  * `onProgress` fires only on that buffered path, because it is the only one where the wait is
+  * ours to report: a plain link hands off to the browser's own download UI immediately.
+  */
+-export async function downloadFromUrl(url: string, fallbackFileName: string, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
++export async function downloadFromUrl(rawUrl: string, fallbackFileName: string, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
++  // Navigation, not a request the fetch/XHR shims can rewrite.
++  const url = withBase(rawUrl)
+   if (!isIosStandaloneWebApp()) {
+     const anchor = document.createElement('a')
+     anchor.href = url
+diff --git a/client/src/lib/ingress-base.ts b/client/src/lib/ingress-base.ts
+new file mode 100644
+index 0000000..1fade79
+--- /dev/null
++++ b/client/src/lib/ingress-base.ts
+@@ -0,0 +1,82 @@
++/**
++ * Serving the client from a path prefix.
++ *
++ * Home Assistant Ingress serves an add-on under `/api/hassio_ingress/<session-token>/` on the
++ * Home Assistant origin, and mints that token per session, so the prefix cannot be baked in at
++ * build time. Any reverse proxy hosting BookOrbit at a subpath has the same problem.
++ *
++ * The prefix is taken from a `<base href>` tag that the proxy injects into `index.html`. When
++ * there is no such tag - every ordinary deployment - `basePath` is `/` and every helper below is
++ * an identity, so this module changes nothing outside a prefixed deployment.
++ *
++ * Assets and lazy chunks are handled by the build instead (`base: './'`), which makes them
++ * resolve relative to the document. This module covers what the build cannot: runtime URLs the
++ * app builds itself as server-absolute paths.
++ */
++
++function readBasePath(): string {
++  // Only an explicit <base> counts. Falling back to document.baseURI would read the current
++  // document's own path, so a deep link such as /books/123 would be mistaken for the prefix.
++  const element = typeof document === 'undefined' ? null : document.querySelector('base[href]')
++  if (!element) return '/'
++
++  const href = element.getAttribute('href') ?? '/'
++  const { pathname } = new URL(href, window.location.origin)
++  return pathname.endsWith('/') ? pathname : `${pathname}/`
++}
++
++export const basePath = readBasePath()
++
++/** True only when the app is served from a path prefix. */
++export const isPrefixed = basePath !== '/'
++
++/**
++ * Rewrites a server-absolute path onto the prefix. Protocol-relative (`//host`) and already
++ * prefixed paths are left alone, as is anything that is not an absolute path.
++ */
++export function withBase(path: string): string {
++  if (!isPrefixed) return path
++  if (!path.startsWith('/') || path.startsWith('//')) return path
++  if (path === basePath || path.startsWith(basePath)) return path
++  return basePath + path.slice(1)
++}
++
++/**
++ * Request interception happens here rather than at each call site. Most of the client goes
++ * through `lib/api.ts`, but the auth flows, the preference-sync composables and a few components
++ * call `fetch` directly, and the upload paths use XMLHttpRequest for progress events. Patching
++ * the two transports covers all of them, including any added later.
++ */
++function installRequestRewrites(): void {
++  const originalFetch = window.fetch.bind(window)
++  window.fetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
++    if (typeof input === 'string') return originalFetch(withBase(input), init)
++
++    if (input instanceof Request) {
++      const url = new URL(input.url, window.location.href)
++      if (url.origin === window.location.origin) {
++        const rewritten = withBase(url.pathname)
++        if (rewritten !== url.pathname) {
++          url.pathname = rewritten
++          return originalFetch(new Request(url.href, input), init)
++        }
++      }
++    }
++
++    return originalFetch(input, init)
++  }
++
++  const originalOpen = XMLHttpRequest.prototype.open
++  XMLHttpRequest.prototype.open = function open(
++    this: XMLHttpRequest,
++    method: string,
++    url: string | URL,
++    ...rest: unknown[]
++  ) {
++    const target = typeof url === 'string' ? withBase(url) : url
++    // eslint-disable-next-line @typescript-eslint/no-explicit-any, prefer-spread
++    return (originalOpen as any).apply(this, [method, target, ...rest])
++  } as typeof XMLHttpRequest.prototype.open
++}
++
++if (isPrefixed) installRequestRewrites()
+diff --git a/client/src/lib/socket.ts b/client/src/lib/socket.ts
+index d1bc427..b5781f1 100644
+--- a/client/src/lib/socket.ts
++++ b/client/src/lib/socket.ts
+@@ -1,6 +1,7 @@
+ import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket.io-client'
+ 
+ import { getValidToken, refreshAccessToken } from '@/lib/api'
++import { basePath } from '@/lib/ingress-base'
+ 
+ const REAUTH_BASE_DELAY_MS = 1_000
+ const REAUTH_MAX_DELAY_MS = 30_000
+@@ -22,6 +23,7 @@ const STABLE_CONNECTION_MS = 5_000
+  */
+ export function createAuthenticatedSocket(namespace: string, options: Partial<ManagerOptions & SocketOptions> = {}): Socket {
+   const socket = io(namespace, {
++    path: `${basePath}socket.io`,
+     transports: ['websocket'],
+     ...options,
+     // Resolved per handshake, and awaited: a woken tab holds a token the server already rejects.
+diff --git a/client/src/main.ts b/client/src/main.ts
+index fbfdf10..6c38b79 100644
+--- a/client/src/main.ts
++++ b/client/src/main.ts
+@@ -1,3 +1,6 @@
++// First, so the transports are patched before any module-level request goes out.
++import './lib/ingress-base'
++
+ import './assets/main.css'
+ import './lib/echarts'
+ 
+diff --git a/client/src/router/index.ts b/client/src/router/index.ts
+index 3c19d1a..e6685d5 100644
+--- a/client/src/router/index.ts
++++ b/client/src/router/index.ts
+@@ -15,6 +15,7 @@ import { normalizeSystemTab, type SystemTab } from '@/features/settings/lib/syst
+ import { normalizeAccountTab, type AccountTab } from '@/features/settings/lib/account-tabs'
+ import { normalizeAppearanceTab, type AppearanceTab } from '@/features/settings/lib/appearance-tabs'
+ import { normalizeIntegrationTab, type IntegrationTab } from '@/features/settings/lib/integration-tabs'
++import { basePath } from '@/lib/ingress-base'
+ import { i18n } from '@/i18n'
+ import { registerAuthGuard } from './guards/auth.guard'
+ import { registerRouteTitleHook } from './title-resolver'
+@@ -740,7 +741,7 @@ export const routes: RouteRecordRaw[] = [
+ ]
+ 
+ const router = createRouter({
+-  history: createWebHistory(import.meta.env.BASE_URL),
++  history: createWebHistory(basePath),
+   routes,
+ })
+ 
+diff --git a/client/vite.config.ts b/client/vite.config.ts
+index df5a5be..0b4b0ac 100644
+--- a/client/vite.config.ts
++++ b/client/vite.config.ts
+@@ -9,8 +9,15 @@ import { VitePWA } from 'vite-plugin-pwa'
+ 
+ const apiAgent = new Agent({ keepAlive: true })
+ 
++// A build for a deployment behind a path prefix (Home Assistant Ingress, or any reverse proxy
++// serving BookOrbit at a subpath). A relative base makes index.html and the lazy-chunk loader
++// resolve against the document instead of the origin root, which is the only part of prefix
++// support the build itself can provide. Unset, everything below is exactly as before.
++const prefixedBuild = process.env.BOOKORBIT_PREFIXED_BUILD === '1'
++
+ // https://vite.dev/config/
+ export default defineConfig({
++  base: prefixedBuild ? './' : '/',
+   define: {
+     __INTLIFY_PROD_DEVTOOLS__: false,
+     __VUE_I18N_FULL_INSTALL__: true,
+@@ -21,6 +28,9 @@ export default defineConfig({
+     vueDevTools(),
+     tailwindcss(),
+     VitePWA({
++      // A service worker registers against a scope it cannot reach under an Ingress session
++      // path, and would cache URLs that stop being valid when the token rotates.
++      disable: prefixedBuild,
+       registerType: 'autoUpdate',
+       injectRegister: 'auto',
+       includeAssets: [
