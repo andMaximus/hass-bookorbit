@@ -1,3 +1,142 @@
+diff --git a/client/src/features/book-dock/composables/useBookDockDetail.ts b/client/src/features/book-dock/composables/useBookDockDetail.ts
+index b16ddf3..e4bdb5b 100644
+--- a/client/src/features/book-dock/composables/useBookDockDetail.ts
++++ b/client/src/features/book-dock/composables/useBookDockDetail.ts
+@@ -1,6 +1,7 @@
+ import { ref } from 'vue'
+ import { api } from '@/lib/api'
+ import type { BookDockFile, BookDockMetadata } from '@bookorbit/types'
++import { withBase } from '@/lib/ingress-base'
+ 
+ export function useBookDockDetail() {
+   const file = ref<BookDockFile | null>(null)
+@@ -69,7 +70,7 @@ export function useBookDockDetail() {
+   }
+ 
+   function coverUrl(id: number): string {
+-    return `/api/v1/book-dock/files/${id}/cover`
++    return withBase(`/api/v1/book-dock/files/${id}/cover`)
+   }
+ 
+   return { file, loading, saving, saved, saveError, loadFile, saveMetadata, debouncedSave, setTarget, coverUrl }
+diff --git a/client/src/features/book-dock/lib/file-display.ts b/client/src/features/book-dock/lib/file-display.ts
+index 3feeb57..aae80f3 100644
+--- a/client/src/features/book-dock/lib/file-display.ts
++++ b/client/src/features/book-dock/lib/file-display.ts
+@@ -1,5 +1,6 @@
+ import type { BookDockFile, BookDockMetadata } from '@bookorbit/types'
+ import { toDisplayCoverUrl } from '@/features/book/lib/metadata-fetch'
++import { withBase } from '@/lib/ingress-base'
+ 
+ export type MetadataState = 'edited' | 'fetched' | 'embedded' | 'none'
+ 
+@@ -43,7 +44,7 @@ export function proposedAuthor(file: BookDockFile): string | null {
+ }
+ 
+ export function currentCoverUrl(file: BookDockFile): string {
+-  return `/api/v1/book-dock/files/${file.id}/cover?v=${new Date(file.updatedAt).getTime()}`
++  return withBase(`/api/v1/book-dock/files/${file.id}/cover?v=${new Date(file.updatedAt).getTime()}`)
+ }
+ 
+ export function proposedCoverUrl(file: BookDockFile): string | null {
+diff --git a/client/src/features/book/composables/useCoverVersions.ts b/client/src/features/book/composables/useCoverVersions.ts
+index 9f9903e..c744fb8 100644
+--- a/client/src/features/book/composables/useCoverVersions.ts
++++ b/client/src/features/book/composables/useCoverVersions.ts
+@@ -1,4 +1,5 @@
+ import { ref } from 'vue'
++import { withBase } from '@/lib/ingress-base'
+ 
+ const STORAGE_KEY = 'cover-versions'
+ type CoverVersionInput = number | string | Date | null | undefined
+@@ -58,7 +59,7 @@ export function useCoverVersions() {
+   }
+ 
+   function coverUrl(bookId: number, type: 'thumbnail' | 'cover' = 'thumbnail', sourceVersion?: CoverVersionInput): string {
+-    const base = `/api/v1/books/${bookId}/${type}`
++    const base = withBase(`/api/v1/books/${bookId}/${type}`)
+     const localVersion = versions.value.get(bookId)
+     const serverVersion = normalizeVersion(sourceVersion)
+     const token = versionToken(localVersion, serverVersion)
+diff --git a/client/src/features/book/lib/metadata-fetch.ts b/client/src/features/book/lib/metadata-fetch.ts
+index c668059..1bb302b 100644
+--- a/client/src/features/book/lib/metadata-fetch.ts
++++ b/client/src/features/book/lib/metadata-fetch.ts
+@@ -1,4 +1,5 @@
+ import type { MetadataCandidate, MetadataProviderInfo, MetadataProviderKey } from '@bookorbit/types'
++import { withBase } from '@/lib/ingress-base'
+ 
+ export { getProviderColor, providerBadgeStyle, providerActivePillStyle } from '@/lib/provider-colors'
+ 
+@@ -28,7 +29,7 @@ export function toDisplayCoverUrl(url: string | null | undefined): string {
+   try {
+     const parsed = origin ? new URL(raw, origin) : new URL(raw)
+     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return raw
+-    if (parsed.pathname === COVER_PROXY_PATH) return raw
++    if (parsed.pathname === COVER_PROXY_PATH || parsed.pathname === withBase(COVER_PROXY_PATH)) return raw
+ 
+     if (origin) {
+       const pageOrigin = new URL(origin).origin
+@@ -37,7 +38,7 @@ export function toDisplayCoverUrl(url: string | null | undefined): string {
+       return raw
+     }
+ 
+-    return `${COVER_PROXY_PATH}?url=${encodeURIComponent(parsed.toString())}`
++    return `${withBase(COVER_PROXY_PATH)}?url=${encodeURIComponent(parsed.toString())}`
+   } catch {
+     return raw
+   }
+diff --git a/client/src/features/reader/audiobook/AudiobookReaderView.vue b/client/src/features/reader/audiobook/AudiobookReaderView.vue
+index 8c2077f..5dc26ab 100644
+--- a/client/src/features/reader/audiobook/AudiobookReaderView.vue
++++ b/client/src/features/reader/audiobook/AudiobookReaderView.vue
+@@ -36,6 +36,7 @@ import { useAudioSettings } from './composables/useAudioSettings'
+ import { useAudioBookmarks, type AudioBookmark } from './composables/useAudioBookmarks'
+ import { useReadingSession } from '../shared/composables/useReadingSession'
+ import { useFullscreen } from '../shared/composables/useFullscreen'
++import { withBase } from '@/lib/ingress-base'
+ 
+ const { t } = useI18n()
+ 
+@@ -724,7 +725,7 @@ onMounted(async () => {
+       navigator.mediaSession.metadata = new MediaMetadata({
+         title: displayTitle.value,
+         artist: detailRes.authors.map((a: { name: string }) => a.name).join(', '),
+-        artwork: detailRes.coverSource ? [{ src: `/api/v1/books/${props.bookId}/cover`, sizes: '512x512', type: 'image/jpeg' }] : [],
++        artwork: detailRes.coverSource ? [{ src: withBase(`/api/v1/books/${props.bookId}/cover`), sizes: '512x512', type: 'image/jpeg' }] : [],
+       })
+       navigator.mediaSession.setActionHandler('play', togglePlay)
+       navigator.mediaSession.setActionHandler('pause', togglePlay)
+@@ -853,7 +854,7 @@ onMounted(async () => {
+             />
+             <!-- Cover -->
+             <div class="absolute inset-0 rounded-2xl overflow-hidden ring-1 ring-white/10 shadow-2xl">
+-              <img v-if="detail.coverSource" :src="`/api/v1/books/${props.bookId}/cover`" class="w-full h-full object-cover" :alt="displayTitle" />
++              <img v-if="detail.coverSource" :src="withBase(`/api/v1/books/${props.bookId}/cover`)" class="w-full h-full object-cover" :alt="displayTitle" />
+               <BookCoverPlaceholder
+                 v-else
+                 :title="detail.title"
+diff --git a/client/src/features/reader/cbz/composables/useCbz.ts b/client/src/features/reader/cbz/composables/useCbz.ts
+index 24fef7a..ad9a210 100644
+--- a/client/src/features/reader/cbz/composables/useCbz.ts
++++ b/client/src/features/reader/cbz/composables/useCbz.ts
+@@ -1,6 +1,7 @@
+ import { ref } from 'vue'
+ import type { BookDetail } from '@bookorbit/types'
+ import { api } from '@/lib/api'
++import { withBase } from '@/lib/ingress-base'
+ 
+ /** The series a book is read as part of: its first membership, matching how the book pages order them. */
+ function primarySeriesId(book: BookDetail | null): number | null {
+@@ -17,7 +18,7 @@ export function useCbz(fileId: number, bookId: number) {
+   const error = ref<string | null>(null)
+ 
+   function pageUrl(n: number): string {
+-    return `/api/v1/cbz/files/${fileId}/pages/${n}`
++    return withBase(`/api/v1/cbz/files/${fileId}/pages/${n}`)
+   }
+ 
+   async function load(): Promise<void> {
 diff --git a/client/src/lib/download.ts b/client/src/lib/download.ts
 index d697774..e6434e3 100644
 --- a/client/src/lib/download.ts

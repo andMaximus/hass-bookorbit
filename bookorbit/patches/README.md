@@ -56,20 +56,17 @@ own frontend instead of the add-on, which is what made every proxy-side workarou
 Not yet verified, because it needs a browser against a real Ingress session rather than curl: the
 `fetch`/XHR rewrites, the router base, socket.io, and the DOM-attribute URLs below.
 
-## Still to do
+## Covered by 0001
 
-Not yet covered — URLs the app builds itself and hands to the **browser** via DOM attributes, which
-no transport shim can intercept:
+Every URL the app hands to the browser through a DOM attribute, which no transport shim can
+intercept, is wrapped with `withBase(...)`:
 
 - `features/book/composables/useCoverVersions.ts` — `coverUrl()`, the main library cover builder
-- `features/book-dock/composables/useBookDockDetail.ts` and `features/book-dock/lib/file-display.ts`
-- `features/book/lib/metadata-fetch.ts` — `COVER_PROXY_PATH`
-- `features/reader/audiobook/AudiobookReaderView.vue` — `mediaSession` artwork and one `<img :src>`
-- `features/reader/cbz/CbzReaderView.vue` — `pageUrl()`
-
-Each is a small `withBase(...)` wrap. They are listed here rather than done blind because the set
-was arrived at by grepping, and the authoritative check is a click-through with the network panel
-open: anything still requesting the Home Assistant origin root shows up there immediately.
+- `features/book-dock/composables/useBookDockDetail.ts`, `features/book-dock/lib/file-display.ts`
+- `features/book/lib/metadata-fetch.ts` — the cover proxy, including the pathname comparison that
+  also has to accept the prefixed form
+- `features/reader/audiobook/AudiobookReaderView.vue` — the `<img>` and the `mediaSession` artwork
+- `features/reader/cbz/composables/useCbz.ts` — `pageUrl()`, the comic page images
 
 ## Upstreaming
 
