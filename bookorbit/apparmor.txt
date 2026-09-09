@@ -85,4 +85,7 @@ profile bookorbit flags=(attach_disconnected,mediate_deleted) {
   /dev/tty rw,
   /dev/null rw,
   /proc/*/oom_score_adj w,
+  # nginx logs to /dev/stderr, which resolves to /proc/self/fd/2 and is opened
+  # with O_CREAT, so read and write alone are not enough.
+  /proc/*/fd/* rwk,
 }

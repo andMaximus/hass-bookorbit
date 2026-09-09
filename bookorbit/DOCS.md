@@ -235,15 +235,24 @@ Plain HTTP works. Over Tailscale or another VPN that is a perfectly reasonable s
 
 ## Home Assistant Ingress
 
-This add-on does **not** use Ingress (the sidebar panel), and access is through its port instead.
+BookOrbit appears in your Home Assistant sidebar. Nothing to configure.
 
-BookOrbit's web client is built with absolute asset paths, so under an Ingress path prefix the
-browser requests its JavaScript from Home Assistant's own URL space and never reaches the add-on.
-Fixing that requires changes to BookOrbit's client build, not a proxy trick — it is planned for a
-future release of this add-on.
+The panel and the mapped port are deliberately separate paths:
 
-Note that Ingress could never be the only way in regardless: Kobo, KOReader and OPDS devices have no
-Ingress session and always need the add-on's real URL.
+- **The panel** is served by an nginx inside the add-on from a copy of the web client that has been
+  rebuilt to work under Ingress's session path. Home Assistant serves add-ons under
+  `/api/hassio_ingress/<token>/`, and upstream's client is built assuming it lives at the root, so
+  it would otherwise ask Home Assistant's own URL space for its JavaScript and never reach the
+  add-on.
+- **The mapped port** keeps serving upstream's own untouched build, straight from BookOrbit. Nothing
+  about the panel is in that path.
+
+**Devices still need the port.** A Kobo, the KOReader plugin, OPDS clients and Send-to-Kindle hold
+no Ingress session and cannot obtain one, so they use `app_url` as they always have. The panel is a
+convenience for browsing from Home Assistant, not a replacement.
+
+If the panel ever misbehaves after an upstream BookOrbit release, the mapped port is unaffected and
+remains fully usable.
 
 ## Backups
 

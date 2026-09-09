@@ -44,6 +44,7 @@ Full documentation, including network shares, remote access and Kobo setup, is i
 | Database | PostgreSQL 18 + pgvector 0.8.1, bundled and loopback-only |
 | Architectures | `amd64`, `aarch64` |
 | Supervision | s6-overlay v3, ordered start and clean shutdown |
+| Sidebar panel | Ingress, serving a client rebuilt for the session path prefix |
 | Confinement | Scoped AppArmor profile validated under an enforcing kernel; no elevated capabilities, no host namespaces |
 | Backups | Cold, so the database is never copied while running |
 
@@ -54,10 +55,8 @@ undecryptable.
 
 ## Known limitations
 
-- **No Ingress panel.** BookOrbit's web client is built with absolute asset paths, so under an
-  Ingress path prefix the browser requests its JavaScript from Home Assistant's own URL space and
-  never reaches the add-on. This needs a change to BookOrbit's client build rather than a proxy
-  trick; it is planned. See [DOCS.md](bookorbit/DOCS.md#home-assistant-ingress).
+- **Devices still need the mapped port.** The sidebar panel works, but a Kobo, the KOReader plugin
+  and OPDS clients hold no Ingress session and always talk to the add-on's own URL.
 - **Book Dock auto-detection does not work on network shares**, because inotify does not fire for
   changes made on the far side of an SMB or NFS mount. Libraries use scheduled scans and are
   unaffected. Workarounds in [DOCS.md](bookorbit/DOCS.md#network-shares-nas).

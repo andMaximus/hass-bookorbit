@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.9.0.5
+
+Adds a Home Assistant sidebar panel via Ingress.
+
+Home Assistant serves add-ons under `/api/hassio_ingress/<session-token>/`, and
+BookOrbit's client is built assuming it lives at the origin root, so under that
+prefix the browser asks Home Assistant for `/assets/...`, Home Assistant answers,
+and the add-on is never contacted. No proxy inside the add-on can intercept a
+request the browser sends somewhere else, so the client is rebuilt from a pinned
+upstream checkout with a small patch set (see `patches/README.md`) and served by
+nginx with the session prefix injected as a `<base href>`.
+
+The panel is a separate path rather than a mode switch: nginx serves the patched
+client from its own root and proxies only the API and websockets, so the mapped
+port keeps serving upstream's untouched build. Kobo, KOReader, OPDS clients and
+reverse proxies never pass through nginx, and devices continue to use `app_url`
+because they hold no Ingress session.
+
+Verified with the panel and the port side by side: the panel gets a relative-asset
+build with `<base href>` injected, deep links and the API work through it, and the
+port still serves upstream's build with 188 origin-absolute asset references and
+no `<base>` tag. Confirmed with zero AppArmor denials under an enforcing kernel.
+
 ## 2.9.0.4
 
 Restores a scoped AppArmor profile, this time developed against a real enforcing
