@@ -67,6 +67,14 @@ intercept, is wrapped with `withBase(...)`:
   also has to accept the prefixed form
 - `features/reader/audiobook/AudiobookReaderView.vue` — the `<img>` and the `mediaSession` artwork
 - `features/reader/cbz/composables/useCbz.ts` — `pageUrl()`, the comic page images
+- `features/reader/epub/composables/useFoliate.ts` — the epub reader loads `foliate/view.js` with a
+  hand-written `<script src>`, outside Vite's asset pipeline, so a relative build base never
+  touched it. This one is why "Failed to load book" appeared in the panel.
+- `features/book/lib/provider-icons.ts` — same shape: `/assets/provider-icons/*.svg` from `public/`
+
+Anything under `public/` is copied verbatim and referenced by hand, so it is exactly the category a
+build-time base cannot fix. `index.html`'s own references (including `theme-init.js`) are rewritten
+by Vite and need nothing.
 
 ## Upstreaming
 

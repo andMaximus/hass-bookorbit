@@ -4,7 +4,7 @@ name: BookOrbit
 # 2.9.0 -> 2.9.0.2. NOT "2.9.0-2" - that is a semver prerelease and sorts BELOW
 # 2.9.0, so the Supervisor greys out the update button. 2.9.0.2 sorts above
 # 2.9.0 and still below the next upstream release.
-version: "2.9.0.6"
+version: "2.9.0.7"
 slug: bookorbit
 description: >-
   Self-hosted library and reading platform for ebooks, audiobooks, comics and PDFs,

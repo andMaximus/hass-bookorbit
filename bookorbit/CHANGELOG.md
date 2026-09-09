@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.9.0.7
+
+Fixes "Failed to load book" when opening a book in the Ingress panel.
+
+The epub reader loads foliate with a hand-written `<script src="/assets/foliate/view.js">`.
+That file lives in `public/`, so it never passes through Vite's asset pipeline
+and the relative build base did not touch it - under Ingress it resolved to the
+Home Assistant origin root, 404'd, and the reader reported the book as unloadable.
+
+The metadata provider icons had the same shape (`/assets/provider-icons/*.svg`)
+and would have rendered broken. Both now go through the prefix helper.
+
+Anything under `public/` is copied verbatim and referenced by hand, which makes it
+precisely the category a build-time base cannot fix; these were the only two.
+
 ## 2.9.0.6
 
 Fixes being bounced back to the sign-in page on the first navigation inside the

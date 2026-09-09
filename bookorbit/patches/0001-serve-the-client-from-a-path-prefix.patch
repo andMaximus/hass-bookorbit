@@ -86,6 +86,18 @@ index c668059..1bb302b 100644
    } catch {
      return raw
    }
+diff --git a/client/src/features/book/lib/provider-icons.ts b/client/src/features/book/lib/provider-icons.ts
+index 0cc21d0..dd1b983 100644
+--- a/client/src/features/book/lib/provider-icons.ts
++++ b/client/src/features/book/lib/provider-icons.ts
+@@ -1,4 +1,6 @@
+-const PROVIDER_ICON_BASE_PATH = '/assets/provider-icons'
++import { withBase } from '@/lib/ingress-base'
++
++const PROVIDER_ICON_BASE_PATH = withBase('/assets/provider-icons')
+ 
+ const PROVIDER_ICON_PATHS = {
+   google: `${PROVIDER_ICON_BASE_PATH}/google.svg`,
 diff --git a/client/src/features/reader/audiobook/AudiobookReaderView.vue b/client/src/features/reader/audiobook/AudiobookReaderView.vue
 index 8c2077f..5dc26ab 100644
 --- a/client/src/features/reader/audiobook/AudiobookReaderView.vue
@@ -137,6 +149,27 @@ index 24fef7a..ad9a210 100644
    }
  
    async function load(): Promise<void> {
+diff --git a/client/src/features/reader/epub/composables/useFoliate.ts b/client/src/features/reader/epub/composables/useFoliate.ts
+index 0944b1c..28c13c6 100644
+--- a/client/src/features/reader/epub/composables/useFoliate.ts
++++ b/client/src/features/reader/epub/composables/useFoliate.ts
+@@ -4,6 +4,7 @@ import { useFoliateAnnotations } from './useFoliateAnnotations'
+ import { useFoliateSelection } from './useFoliateSelection'
+ import { useFoliateInput } from './useFoliateInput'
+ import type { EpubBookInfo, EpubReaderSettings } from '@bookorbit/types'
++import { withBase } from '@/lib/ingress-base'
+ 
+ export interface RelocateDetail {
+   cfi?: string | null
+@@ -97,7 +98,7 @@ export function useFoliate(
+ 
+   async function loadScript() {
+     if (customElements.get('foliate-view')) return
+-    const src = import.meta.env.DEV ? `/assets/foliate/view.js?v=${Date.now()}` : '/assets/foliate/view.js'
++    const src = import.meta.env.DEV ? withBase(`/assets/foliate/view.js?v=${Date.now()}`) : withBase('/assets/foliate/view.js')
+     await new Promise<void>((resolve, reject) => {
+       const script = document.createElement('script')
+       script.type = 'module'
 diff --git a/client/src/lib/download.ts b/client/src/lib/download.ts
 index d697774..e6434e3 100644
 --- a/client/src/lib/download.ts
