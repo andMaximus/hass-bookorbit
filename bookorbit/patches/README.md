@@ -33,6 +33,29 @@ the upstream-sync PR red instead of shipping a broken UI.
 | Downloads | `downloadFromUrl` sets `anchor.href` and clicks it — browser navigation, so neither transport shim sees it. Rewritten at that one chokepoint. |
 | Service worker | Disabled in a prefixed build: it would register against a scope it cannot reach and cache URLs that die when the session token rotates. |
 
+## Verified
+
+Built from a pinned v2.9.0 checkout with the patch applied, then served behind a simulated prefix
+(nginx at `/pfx/`, injecting `<base href="/pfx/">` the way the add-on's nginx will from
+`X-Ingress-Path`):
+
+| Check | Result |
+| --- | --- |
+| Client builds with the patch | clean, 33s |
+| `index.html` asset references | all `./assets/...`, zero origin-absolute |
+| Origin-absolute `"/assets/"` literals left in the JS | 0 |
+| Chunk loader | resolves via `import.meta.url` |
+| Entry script under the prefix | 200 — and 404 at the origin root |
+| A genuinely lazy chunk (absent from `index.html`) | 200 under the prefix, 404 at root |
+| SPA deep link `/pfx/books/123` | 200, with `<base>` injected |
+| Service worker | not emitted |
+
+The 404s at the origin root are the point: under real Ingress those requests reach Home Assistant's
+own frontend instead of the add-on, which is what made every proxy-side workaround impossible.
+
+Not yet verified, because it needs a browser against a real Ingress session rather than curl: the
+`fetch`/XHR rewrites, the router base, socket.io, and the DOM-attribute URLs below.
+
 ## Still to do
 
 Not yet covered — URLs the app builds itself and hands to the **browser** via DOM attributes, which
