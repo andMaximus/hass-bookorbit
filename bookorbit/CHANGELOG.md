@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.9.0.4
+
+Restores a scoped AppArmor profile, this time developed against a real enforcing
+kernel instead of by inspection.
+
+2.9.0.3 dropped the profile because it had been shipped twice without ever being
+tested under enforcement. It is back because there is now a rig that reproduces
+the Supervisor's behaviour: AppArmor enabled in the WSL2 kernel, a native dockerd
+in a Debian distro, and a gate that aborts the test unless the container really
+reports `bookorbit (enforce)`.
+
+That rig reproduced the original bug exactly - `/bin/sh: can't open '/init'` with
+`apparmor="DENIED" ... name="/init" requested_mask="r"` - and then found five more
+that inspection had missed:
+
+- `/run/` itself, which s6-linux-init chmods and chowns before staging into it
+- `/etc/s6-overlay/**` needs write: s6 compiles its service database there at boot
+- `/usr/lib/bashio/**` needs exec, since /usr/bin/bashio is a symlink into it
+- `/dev/shm/**` for PostgreSQL's shared buffers, and `/app/** rm` for the native
+  Node addons it mmaps with PROT_EXEC
+- `network inet dgram`, without which Node cannot resolve DNS
+
+Verified with zero denials across a full boot: initdb, the Drizzle migrations, the
+setup wizard, login, and authenticated API calls. Not yet exercised under
+confinement: a library scan, cover extraction, a kepubify conversion, Kobo sync
+and OIDC login.
+
 ## 2.9.0.3
 
 Removes the custom AppArmor profile so the add-on starts.

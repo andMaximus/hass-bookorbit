@@ -277,9 +277,10 @@ Release notes will say when this applies. It will not happen silently.
 
 ## Troubleshooting
 
-**`Permission denied` on `/init` or `/run/s6/basedir/bin/init` at startup.** Fixed in 2.9.0.3,
-which drops the add-on's custom AppArmor profile in favour of the Supervisor's default one. Update
-the add-on.
+**`Permission denied` on `/init` or `/run/s6/basedir/bin/init` at startup.** Fixed in 2.9.0.3 and
+2.9.0.4. Update the add-on. If it recurs on your system, the add-on's AppArmor profile is denying
+something specific to your setup: `dmesg | grep DENIED` on the Home Assistant host names the exact
+path, and that output in an issue is enough to fix it.
 
 **The add-on stops right after starting.** Check the Log tab. The most common causes are an invalid
 `app_url` (it must be a full URL including the scheme) and a PostgreSQL major-version mismatch.

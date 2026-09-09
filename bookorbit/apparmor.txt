@@ -1,0 +1,82 @@
+#include <tunables/global>
+
+profile bookorbit flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  capability chown,
+  capability dac_override,
+  capability dac_read_search,
+  capability fowner,
+  capability fsetid,
+  capability kill,
+  capability setgid,
+  capability setuid,
+  capability net_bind_service,
+  capability sys_chroot,
+
+  # UDP as well as TCP: Node resolves DNS over UDP from its libuv worker threads.
+  network inet stream,
+  network inet dgram,
+  network inet6 dgram,
+  network inet6 stream,
+  network unix stream,
+  network unix dgram,
+  network netlink raw,
+
+  signal,
+
+  # Read broadly. /init and s6's staged runtime are #! scripts, and AppArmor mediates
+  # that as read-on-script plus exec-on-interpreter, so `ix` without `r` fails with
+  # "can't open".
+  /** r,
+  /usr/lib/** rm,
+  /lib/** rm,
+
+  # PostgreSQL mmaps its shared buffers, and Node mmaps native .node addons
+  # (sharp, and the pdfium wasm host) with PROT_EXEC.
+  / rw,
+  /app/** rm,
+  /dev/shm/ rw,
+  /dev/shm/** rwlk,
+
+  # Execution
+  /init rix,
+  /bin/** rix,
+  /sbin/** rix,
+  /usr/bin/** rix,
+  /usr/sbin/** rix,
+  /usr/local/bin/** rix,
+  /usr/libexec/** rix,
+  /command/** rix,
+  /package/** rix,
+  /app/entrypoint.sh rix,
+  /app/bin/** rix,
+  /opt/bookorbit-python/** rix,
+  # /usr/bin/bashio is a symlink into here, and AppArmor mediates the resolved path.
+  /usr/lib/bashio/** rix,
+
+  # s6 compiles its service database into this tree at startup, so it needs write
+  # here and not only read+exec.
+  /etc/s6-overlay/** rwix,
+
+  # s6-linux-init chmods and chowns /run itself before staging into it, so the
+  # directory needs granting separately from its contents.
+  /run/ rw,
+  /run/** rwlkix,
+
+  # The mount points themselves as well as their contents.
+  /data/ rw,
+  /data/** rwlk,
+  /media/ rw,
+  /media/** rwlk,
+  /share/ rw,
+  /share/** rwlk,
+  /config/ rw,
+  /config/** rwlk,
+  /tmp/ rw,
+  /tmp/** rwlk,
+
+  /dev/tty rw,
+  /dev/null rw,
+  /proc/*/oom_score_adj w,
+}
