@@ -54,6 +54,12 @@ profile bookorbit flags=(attach_disconnected,mediate_deleted) {
   /opt/bookorbit-python/** rix,
   # /usr/bin/bashio is a symlink into here, and AppArmor mediates the resolved path.
   /usr/lib/bashio/** rix,
+  # nginx serves the Ingress panel and needs its own working directories.
+  /usr/sbin/nginx rix,
+  /var/lib/nginx/ rw,
+  /var/lib/nginx/** rwlk,
+  /var/log/nginx/ rw,
+  /var/log/nginx/** rwlk,
 
   # s6 compiles its service database into this tree at startup, so it needs write
   # here and not only read+exec.

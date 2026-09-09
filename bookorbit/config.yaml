@@ -4,7 +4,7 @@ name: BookOrbit
 # 2.9.0 -> 2.9.0.2. NOT "2.9.0-2" - that is a semver prerelease and sorts BELOW
 # 2.9.0, so the Supervisor greys out the update button. 2.9.0.2 sorts above
 # 2.9.0 and still below the next upstream release.
-version: "2.9.0.4"
+version: "2.9.0.5"
 slug: bookorbit
 description: >-
   Self-hosted library and reading platform for ebooks, audiobooks, comics and PDFs,
@@ -16,13 +16,20 @@ arch:
   - aarch64
 init: false
 
+# The panel serves a client rebuilt for a path prefix; the mapped port below keeps
+# upstream's own build, so devices are unaffected. See bookorbit/patches/README.md.
+ingress: true
+ingress_port: 8099
+panel_title: BookOrbit
+panel_icon: mdi:book-open-page-variant
+
 ports:
   3000/tcp: 3000
 ports_description:
   3000/tcp: >-
-    Web UI and device sync (Kobo, KOReader, OPDS). Devices and reverse proxies both need
-    this. Set it to none only if you reach BookOrbit through another add-on on the internal
-    network at http://bookorbit:3000.
+    Device sync (Kobo, KOReader, OPDS) and direct web access. Devices hold no Ingress
+    session, so they need this port even though the sidebar panel does not. Set it to none
+    only if you reach BookOrbit through another add-on at http://bookorbit:3000.
 webui: "http://[HOST]:[PORT:3000]"
 
 # The image carries a HEALTHCHECK, which is what the Supervisor watches now.

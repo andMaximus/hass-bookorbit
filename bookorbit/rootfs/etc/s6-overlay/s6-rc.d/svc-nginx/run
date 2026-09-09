@@ -1,0 +1,12 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# nginx, serving the Home Assistant Ingress panel on 8099.
+#
+# Only the Ingress panel goes through here. The mapped port talks to Fastify
+# directly with upstream's own client, so device traffic is untouched.
+# ==============================================================================
+set -euo pipefail
+
+bashio::log.info "Starting the Ingress panel..."
+exec nginx -c /etc/nginx/ingress.conf
