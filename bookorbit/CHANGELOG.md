@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.9.0.6
+
+Fixes being bounced back to the sign-in page on the first navigation inside the
+Ingress panel.
+
+BookOrbit sets its refresh cookie with `Path=/api/v1/auth`. Under Ingress the
+browser is at `/api/hassio_ingress/<token>/`, so requests go to
+`/api/hassio_ingress/<token>/api/v1/auth/refresh` - a path that cookie is never
+sent to. Signing in worked because the access token comes back in the response
+body and is held in memory; the first navigation that refreshed the token got no
+cookie, took a 401, and the route guard sent the user back to sign in.
+
+nginx now re-scopes every cookie onto the session prefix with `proxy_cookie_path`.
+
+Reproduced and verified behind a stand-in for the Supervisor, with a cookie jar so
+the browser's own path-matching rules applied:
+
+  2.9.0.5   login 200, cookie Path=/api,                       refresh 401
+  2.9.0.6   login 200, cookie Path=/api/hassio_ingress/.../api, refresh 200
+
 ## 2.9.0.5
 
 Adds a Home Assistant sidebar panel via Ingress.
